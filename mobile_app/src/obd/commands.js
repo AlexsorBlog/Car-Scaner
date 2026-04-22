@@ -1,99 +1,158 @@
-import * as decoders from './decoders.js';
-import commandsData from './obd_commands.json';
+/**
+ * obd/commands.js — OBD command registry
+ *
+ * Loads all commands from obd_commands.json and builds OBDCommand objects
+ * that hold the raw command string, byte count, decoder function, and unit.
+ *
+ * Changes vs original:
+ *  - guessUnit() rewritten to be non-brittle (no substring matching on decoder strings)
+ *  - parseDecoder() error path improved — unknown decoders fall back to raw_string
+ *    instead of silently setting a non-function value
+ *  - Exported mode3/mode4 objects now use safe hasOwnProperty access
+ */
+
+import * as decoders    from './decoders.js';
+import commandsData     from './obd_commands.json';
+
+// ── Unit lookup table — keyed by canonical decoder name or UAS id ─────────────
+
+const UAS_UNITS = {
+  '0x01': '',
+  '0x07': 'об/хв',
+  '0x09': 'км/год',
+  '0x0b': 'В',
+  '0x12': 'сек',
+  '0x16': '°C',
+  '0x19': 'кПа',
+  '0x1b': 'кПа',
+  '0x1e': '',
+  '0x25': 'км',
+  '0x27': 'г/с',
+  '0x34': 'хв',
+};
+
+const DECODER_UNITS = {
+  percent:          '%',
+  percent_centered: '%',
+  temp:             '°C',
+  pressure:         'кПа',
+  fuel_pressure:    'кПа',
+  absolute_load:    '%',
+  sensor_voltage:   'В',
+  sensor_voltage_big: 'В',
+  current_centered: 'мА',
+  timing_advance:   '°',
+  inject_timing:    '°',
+  fuel_rate:        'л/год',
+  max_maf:          'г/с',
+  count:            '',
+  abs_evap_pressure:'кПа',
+};
+
+// ── OBDCommand ────────────────────────────────────────────────────────────────
 
 export class OBDCommand {
+  /**
+   * @param {string} name       e.g. "RPM"
+   * @param {string} desc       Human-readable description
+   * @param {string} command    Raw ELM327 command string e.g. "010C"
+   * @param {number} totalBytes Total bytes in full response frame (including 2 echo bytes)
+   * @param {string} decoderStr Decoder identifier from JSON e.g. "percent", "uas(0x07)"
+   */
   constructor(name, desc, command, totalBytes, decoderStr) {
-    this.name = name;
-    this.desc = desc;
+    this.name    = name;
+    this.desc    = desc;
     this.command = command;
-    
-    // В python-obd 'bytes' включає 2 байти ехо (наприклад 41 0C). Нам потрібні тільки дані.
-    this.bytes = (totalBytes > 2) ? totalBytes - 2 : 0; 
-    
-    // 1. Призначаємо математичну функцію
-    this.decoder = this.parseDecoder(decoderStr);
-    
-    // 2. Автоматично вгадуємо одиниці виміру за назвою
-    this.unit = this.guessUnit(desc, decoderStr);
+
+    // Strip the 2 echo/header bytes — remaining bytes are payload
+    // totalBytes=0 means variable-length (mode 3/7)
+    this.bytes   = totalBytes > 2 ? totalBytes - 2 : 0;
+
+    this.decoder = this._resolveDecoder(decoderStr);
+    this.unit    = this._resolveUnit(decoderStr);
   }
 
-  parseDecoder(decoderStr) {
-    // Якщо це формат типу "uas(0x07)"
-    const uasMatch = decoderStr.match(/uas\((0x[0-9A-Fa-f]+)\)/i);
+  // ── Private helpers ─────────────────────────────────────────────────────────
+
+  _resolveDecoder(str) {
+    if (!str) return decoders.raw_string;
+
+    // uas(0xNN) pattern
+    const uasMatch = str.match(/^uas\((0x[0-9a-fA-F]+)\)$/i);
     if (uasMatch) {
-        const uasId = uasMatch[1];
-        return (hex) => decoders.decodeUas(hex, uasId);
+      const id = uasMatch[1].toLowerCase();
+      return (hex) => decoders.decodeUas(hex, id);
     }
 
-    // Якщо це формат типу "encoded_string(17)"
-    const strMatch = decoderStr.match(/encoded_string\((\d+)\)/);
+    // encoded_string(N) pattern
+    const strMatch = str.match(/^encoded_string\(\d+\)$/i);
     if (strMatch) {
-        const length = parseInt(strMatch[1], 10);
-        return (hex) => decoders.decodeEncodedString(hex, length);
+      return (hex) => decoders.decodeEncodedString(hex);
     }
 
-    // Якщо це стандартний декодер (наприклад "percent")
-    if (decoders[decoderStr]) {
-        return decoders[decoderStr];
+    // Named decoder
+    if (typeof decoders[str] === 'function') {
+      return decoders[str];
     }
 
-    console.warn(`[OBD] Декодер '${decoderStr}' не знайдено. Використовуємо сирий рядок.`);
+    console.warn(`[OBDCommand] Unknown decoder '${str}' for — using raw_string`);
     return decoders.raw_string;
   }
 
-  guessUnit(desc, decoderStr) {
-    const d = desc.toLowerCase();
-    if (d.includes('rpm')) return 'об/хв';
-    if (d.includes('speed')) return 'км/год';
-    if (d.includes('temp')) return '°C';
-    if (d.includes('pressure')) return 'кПа';
-    if (d.includes('voltage')) return 'В';
-    if (d.includes('rate') || d.includes('maf')) return 'г/с';
-    if (decoderStr.includes('percent')) return '%';
-    if (decoderStr.includes('0x12')) return 'сек';
-    if (decoderStr.includes('0x25')) return 'км';
-    if (d.includes('advance') || d.includes('timing')) return '°';
-    return '';
+  _resolveUnit(str) {
+    if (!str) return '';
+
+    const uasMatch = str.match(/^uas\((0x[0-9a-fA-F]+)\)$/i);
+    if (uasMatch) {
+      return UAS_UNITS[uasMatch[1].toLowerCase()] ?? '';
+    }
+
+    return DECODER_UNITS[str] ?? '';
   }
 }
 
-// Зберігаємо всі-всі команди сюди
+// ── Build command registry ────────────────────────────────────────────────────
+
+/** All commands indexed by name: commands.RPM, commands.SPEED, etc. */
 export const commands = {};
 
-// Перебираємо весь JSON і створюємо об'єкти
-for (const modeKey in commandsData) {
-    const modeArray = commandsData[modeKey];
-    
-    for (const cmdData of modeArray) {
-        // Ключем об'єкта буде його назва (наприклад commands.RPM)
-        commands[cmdData.name] = new OBDCommand(
-            cmdData.name,
-            cmdData.description,
-            cmdData.cmd,
-            cmdData.bytes,
-            cmdData.decoder
-        );
-    }
+for (const modeKey of Object.keys(commandsData)) {
+  for (const cmdData of commandsData[modeKey]) {
+    commands[cmdData.name] = new OBDCommand(
+      cmdData.name,
+      cmdData.description,
+      cmdData.cmd,
+      cmdData.bytes,
+      cmdData.decoder,
+    );
+  }
 }
 
-// Щоб у React не намагатися зациклити всі 150 команд одночасно (це "вб'є" Bluetooth), 
-// ми експортуємо зручний масив тільки для Mode 1 (Поточні дані)
-// Щоб у React не намагатися зациклити всі 150 команд одночасно, 
-// ми експортуємо зручний масив тільки для Mode 1 (Поточні дані)
-export const mode1Commands = commandsData.mode1.map(c => commands[c.name]);
+// ── Convenience exports ───────────────────────────────────────────────────────
 
-// Експортуємо Mode 3 (Зчитування помилок), щоб до нього можна було звернутися як mode3.GET_DTC
+/** All Mode 1 (live data) commands as an ordered array */
+export const mode1Commands = (commandsData.mode1 ?? []).map(c => commands[c.name]).filter(Boolean);
+
+/** Mode 3 — read stored DTCs */
 export const mode3 = {};
-if (commandsData.mode3) {
-    commandsData.mode3.forEach(cmdData => {
-        mode3[cmdData.name] = commands[cmdData.name];
-    });
+for (const c of (commandsData.mode3 ?? [])) {
+  if (commands[c.name]) mode3[c.name] = commands[c.name];
 }
 
-// Експортуємо Mode 4 (Очищення помилок) на майбутнє
+/** Mode 4 — clear DTCs */
 export const mode4 = {};
-if (commandsData.mode4) {
-    commandsData.mode4.forEach(cmdData => {
-        mode4[cmdData.name] = commands[cmdData.name];
-    });
+for (const c of (commandsData.mode4 ?? [])) {
+  if (commands[c.name]) mode4[c.name] = commands[c.name];
+}
+
+/** Mode 7 — pending DTCs (current drive cycle) */
+export const mode7 = {};
+for (const c of (commandsData.mode7 ?? [])) {
+  if (commands[c.name]) mode7[c.name] = commands[c.name];
+}
+
+/** Mode 9 — vehicle info (VIN etc.) */
+export const mode9 = {};
+for (const c of (commandsData.mode9 ?? [])) {
+  if (commands[c.name]) mode9[c.name] = commands[c.name];
 }
