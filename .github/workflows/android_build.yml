@@ -34,6 +34,10 @@ jobs:
         working-directory: ./mobile_app
         run: npx cap sync android
 
+      - name: Set Execute Permissions for Gradlew
+        working-directory: ./mobile_app/android
+        run: chmod +x gradlew
+
       - name: Build APK with Gradle
         working-directory: ./mobile_app/android
         run: ./gradlew assembleDebug
