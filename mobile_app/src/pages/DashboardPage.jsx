@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { useTelemetry } from '../hooks/useTelemetry';
+import { useTelemetry } from '../context/TelemetryContext.jsx';
 // ДОДАНО ІМПОРТ TRANSPORT:
 import { obdScanner, TRANSPORT } from '../services/bleService.js'; 
 import { obd } from '../obd/index.js';
