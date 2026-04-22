@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { useTelemetry } from '../context/TelemetryContext.jsx';
-// ДОДАНО ІМПОРТ TRANSPORT:
 import { obdScanner, TRANSPORT } from '../services/bleService.js'; 
 import { obd } from '../obd/index.js';
 import { commands } from '../obd/commands.js';
@@ -9,6 +8,13 @@ import { getRecentTelemetry, saveDiagnosticReport, getDiagnosticReports } from '
 import { useNavigate } from 'react-router-dom';
 import HideIcon from '../assets/hide.svg';
 import ShowIcon from '../assets/show.svg';
+import SpeedIcon from '../assets/speedometer.svg';
+import RpmIcon from '../assets/tachometer.svg';
+import CoolantIcon from '../assets/thermometer.svg';
+import FuelIcon from '../assets/fuel.svg';
+import EngineIcon from '../assets/engine.svg';
+import IntakeIcon from '../assets/thermometer-sun.svg';
+import ThrottleIcon from '../assets/bar-chart.svg';
 
 const INITIAL_LAYOUT = [
   { id: 'SPEED', visible: true, size: 'col-span-3' },
@@ -19,6 +25,17 @@ const INITIAL_LAYOUT = [
   { id: 'INTAKE_TEMP', visible: true, size: 'col-span-1' },
   { id: 'THROTTLE_POS', visible: true, size: 'col-span-1' }
 ];
+
+const WIDGET_ICONS = {
+  SPEED: <img src={SpeedIcon} alt="Speed" className="w-4 h-4 opacity-70" style={{ filter: 'invert(0.8)' }} />,
+  RPM: <img src={RpmIcon} alt="RPM" className="w-4 h-4 opacity-70" style={{ filter: 'invert(0.8)' }} />,
+  COOLANT_TEMP: <img src={CoolantIcon} alt="Coolant Temp" className="w-4 h-4 opacity-70" style={{ filter: 'invert(0.8)' }} />,
+  FUEL_LEVEL: <img src={FuelIcon} alt="Fuel Level" className="w-4 h-4 opacity-70" style={{ filter: 'invert(0.8)' }} />,
+  ENGINE_LOAD: <img src={EngineIcon} alt="Engine Load" className="w-4 h-4 opacity-70" style={{ filter: 'invert(0.8)' }} />,
+  INTAKE_TEMP: <img src={IntakeIcon} alt="Intake Temp" className="w-4 h-4 opacity-70" style={{ filter: 'invert(0.8)' }} />,
+  THROTTLE_POS: <img src={ThrottleIcon} alt="Throttle Pos" className="w-4 h-4 opacity-70" style={{ filter: 'invert(0.8)' }} />,
+  DEFAULT: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 opacity-70"><circle cx="12" cy="12" r="10"/></svg>
+};
 
 const MiniGraph = ({ data, color, label, unit, onClick }) => {
   if (!data || data.length === 0) return (
@@ -35,7 +52,7 @@ const MiniGraph = ({ data, color, label, unit, onClick }) => {
   const values = data.map(d => d.v);
   const max = Math.max(...values, 1);
   const min = Math.min(...values, 0);
-  const range = max - min === 0 ? 1 : max - min;
+  const range = max - min === 0 ? 10 : max - min;
   
   const points = data.map((d, i) => `${(i / (data.length - 1)) * 100},${100 - (((d.v - min) / range) * 100)}`).join(' ');
 
@@ -57,12 +74,8 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const telemetry = useTelemetry();
   
-  // ВИПРАВЛЕННЯ 1: Автовизначення платформи (Телефон = Bluetooth за замовчуванням)
   const isNative = Capacitor.getPlatform() !== 'web';
   const [useEmulator, setUseEmulator] = useState(!isNative);
-  
-  const [timerState, setTimerState] = useState('idle');
-  const [time, setTime] = useState(0);
   
   const [layout, setLayout] = useState(() => {
     const saved = localStorage.getItem('dashboardLayout');
@@ -72,28 +85,38 @@ export default function DashboardPage() {
   const [isEditMode, setIsEditMode] = useState(false);
   
   const [selectedGraph, setSelectedGraph] = useState(null);
-  const [graphTimeframe, setGraphTimeframe] = useState('1h');
   
+  // Graph State
   const [dbGraphData, setDbGraphData] = useState([]);
   const [isGraphLoading, setIsGraphLoading] = useState(false);
+  const [panOffsetMs, setPanOffsetMs] = useState(0); 
+  const [graphZoomMs, setGraphZoomMs] = useState(10 * 60 * 1000); // НОВЕ: Масштаб за замовчуванням (10 хв)
+  const touchStartX = useRef(null);
 
   // Analysis State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [analysisResults, setAnalysisResults] = useState([]);
-  const [liveAnalysisResults, setLiveAnalysisResults] = useState([]); 
   const [showAnalysisModal, setShowAnalysisModal] = useState(false);
   
   // History States
   const [diagnosticHistory, setDiagnosticHistory] = useState([]);
-  const [selectedHistoryId, setSelectedHistoryId] = useState("");
   const [errorHistory, setErrorHistory] = useState([]);
   const [showErrorHistoryModal, setShowErrorHistoryModal] = useState(false);
+
+  // 0-100 Performance State
+  const [perfState, setPerfState] = useState('idle'); 
+  const [perfTime, setPerfTime] = useState(0);
+  const [perfRecords, setPerfRecords] = useState([]);
+  const [selectedPerfRecord, setSelectedPerfRecord] = useState(null); // НОВЕ: Для модалки з деталями заміру
+  
+  const perfInterval = useRef(null);
+  const perfStartTime = useRef(null);
+  const currentRunData = useRef([]);
 
   const dragItem = useRef(null);
   const dragOverItem = useRef(null);
 
-  // ВИПРАВЛЕННЯ 2: Примусово встановлюємо правильний транспортний рівень при старті
   useEffect(() => {
     telemetry.setTransportMode(isNative ? TRANSPORT.NATIVE : TRANSPORT.EMULATOR);
   }, [isNative, telemetry]);
@@ -105,26 +128,80 @@ export default function DashboardPage() {
   }, [layout, telemetry]);
 
   useEffect(() => {
-    let interval;
-    if (timerState === 'running') {
-      interval = setInterval(() => setTime((prev) => prev + 10), 10);
-      if (time > 4220) { setTimerState('finished'); clearInterval(interval); }
+    const loadPerfRecords = async () => {
+      const records = await getDiagnosticReports('perf_0_100', 3);
+      setPerfRecords(records);
+    };
+    loadPerfRecords();
+  }, []);
+
+  // НОВЕ: Покращений запис 0-100 (Пише всі сенсори)
+  useEffect(() => {
+    const speed = telemetry.speed || 0;
+
+    if (perfState === 'ready' && speed > 0) {
+      setPerfState('running');
+      perfStartTime.current = Date.now();
+      currentRunData.current = [];
+      
+      perfInterval.current = setInterval(() => {
+        setPerfTime(Date.now() - perfStartTime.current);
+      }, 50);
     }
-    return () => clearInterval(interval);
-  }, [timerState, time]);
+
+    if (perfState === 'running') {
+      // Записуємо дані з роздільною здатністю ~100 мс
+      if (currentRunData.current.length === 0 || Date.now() - currentRunData.current[currentRunData.current.length-1].t > 100) {
+         
+         const safeNum = (val) => val && val !== '--' ? Number(val) : 0;
+
+         currentRunData.current.push({
+           t: Date.now() - perfStartTime.current,
+           speed: speed,
+           rpm: telemetry.rpm || 0,
+           load: safeNum(telemetry.metrics['ENGINE_LOAD']?.value),
+           throttle: safeNum(telemetry.metrics['THROTTLE_POS']?.value),
+           coolant: safeNum(telemetry.metrics['COOLANT_TEMP']?.value),
+           intake: safeNum(telemetry.metrics['INTAKE_TEMP']?.value)
+         });
+      }
+
+      if (speed >= 100) {
+        clearInterval(perfInterval.current);
+        setPerfState('finished');
+        
+        const finalTime = Date.now() - perfStartTime.current;
+        setPerfTime(finalTime);
+        
+        const newRecord = { timeMs: finalTime, telemetry: currentRunData.current };
+        saveDiagnosticReport('perf_0_100', [newRecord]).then(() => {
+           getDiagnosticReports('perf_0_100', 3).then(setPerfRecords);
+        });
+      }
+    }
+  }, [telemetry.speed, perfState, telemetry]);
+
+  const togglePerfTimer = () => {
+    if (perfState === 'idle' || perfState === 'finished') {
+      setPerfState('ready');
+      setPerfTime(0);
+    } else {
+      setPerfState('idle');
+      clearInterval(perfInterval.current);
+      setPerfTime(0);
+    }
+  };
+
+  const formatPerfTime = (ms) => (ms / 1000).toFixed(2) + 's';
 
   useEffect(() => {
     if (!selectedGraph) return;
     let isActive = true;
     const loadData = async () => {
       setIsGraphLoading(true);
-      let ms = 60 * 1000;
-      if (graphTimeframe === '30m') ms = 30 * 60 * 1000;
-      if (graphTimeframe === '1h') ms = 60 * 60 * 1000;
-      if (graphTimeframe === '24h') ms = 24 * 60 * 60 * 1000;
-      const since = Date.now() - ms;
+      const since = Date.now() - (24 * 60 * 60 * 1000); 
       
-      const history = await getRecentTelemetry(5000, since);
+      const history = await getRecentTelemetry(10000, since);
       if (!isActive) return;
       
       const formatted = history
@@ -133,14 +210,14 @@ export default function DashboardPage() {
       
       setDbGraphData(formatted);
       setIsGraphLoading(false);
+      setPanOffsetMs(0); 
     };
     loadData();
     return () => { isActive = false; };
-  }, [selectedGraph, graphTimeframe]);
+  }, [selectedGraph]);
 
-  // ВИПРАВЛЕННЯ 3: Передаємо правильні константи (TRANSPORT.EMULATOR / TRANSPORT.NATIVE)
   const toggleMode = () => {
-    if (telemetry.isConnected) return; // Заборона зміни режиму під час з'єднання
+    if (telemetry.isConnected) return; 
     const nextEmulator = !useEmulator;
     setUseEmulator(nextEmulator);
     telemetry.setTransportMode(nextEmulator ? TRANSPORT.EMULATOR : TRANSPORT.NATIVE); 
@@ -160,8 +237,7 @@ export default function DashboardPage() {
       if (item.id === id) {
         let currIdx = sizes.indexOf(item.size);
         currIdx += delta;
-        if (currIdx < 0) currIdx = 0;
-        if (currIdx > 2) currIdx = 2;
+        currIdx = Math.max(0, Math.min(2, currIdx));
         return { ...item, size: sizes[currIdx] };
       }
       return item;
@@ -179,9 +255,8 @@ export default function DashboardPage() {
 
   const toggleVisibility = (id) => setLayout(prev => prev.map(item => item.id === id ? { ...item, visible: !item.visible } : item));
 
-  // Load history helpers
   const fetchAnalysisHistory = async () => {
-    const reports = await getDiagnosticReports('detailed_analysis', 20);
+    const reports = await getDiagnosticReports('detailed_analysis', 10);
     setDiagnosticHistory(reports);
   };
 
@@ -193,22 +268,16 @@ export default function DashboardPage() {
   const openAnalysisModal = () => {
     setShowAnalysisModal(true);
     fetchAnalysisHistory();
-    setSelectedHistoryId("");
-    if (liveAnalysisResults.length > 0) {
-      setAnalysisResults(liveAnalysisResults);
-    } else {
-      setAnalysisResults([]);
-    }
+    setAnalysisResults([]); 
   };
 
   const runDetailedAnalysis = async () => {
     if (!telemetry.isConnected) return;
-    if (!window.confirm("Повний аналіз всіх блоків може зайняти до 30 секунд. Продовжити?")) return;
+    if (!window.confirm("Аналіз може зайняти до 30 секунд. Продовжити?")) return;
     
     setIsAnalyzing(true); 
     setAnalysisResults([]); 
     setAnalysisProgress(0);
-    setSelectedHistoryId(""); // Switch to live view
     telemetry.setPaused(true);
     
     const allCommands = Object.values(commands);
@@ -224,17 +293,16 @@ export default function DashboardPage() {
           results.push({ name: cmd.name, desc: cmd.desc, value: res.value, unit: res.unit || '' });
         }
       } catch (err) {}
-      await new Promise(r => setTimeout(r, 150));
+      await new Promise(r => setTimeout(r, 100));
     }
     
     setAnalysisResults(results); 
-    setLiveAnalysisResults(results);
     setIsAnalyzing(false); 
     telemetry.setPaused(false);
 
     if (results.length > 0) {
       await saveDiagnosticReport('detailed_analysis', results);
-      fetchAnalysisHistory(); // Refresh history list
+      fetchAnalysisHistory(); 
     }
   };
 
@@ -243,13 +311,6 @@ export default function DashboardPage() {
       saveDiagnosticReport('scanned_errors', telemetry.errors);
     }
   }, [telemetry.hasScannedErrors, telemetry.errors]);
-
-  const formatStepTime = (timestamp, timeframe) => {
-    const date = new Date(timestamp);
-    if (timeframe === '1m') return `${date.getSeconds()}s`;
-    if (timeframe === '24h') return `${date.getHours()}:00`;
-    return date.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
-  };
 
   const renderDetailedGraph = () => {
     if (!selectedGraph) return null;
@@ -260,24 +321,21 @@ export default function DashboardPage() {
     liveData.forEach(d => dataMap.set(d.t, d.v));
 
     const now = Date.now();
-    let msLimit = 60 * 1000;
-    if (graphTimeframe === '30m') msLimit = 30 * 60 * 1000;
-    if (graphTimeframe === '1h') msLimit = 60 * 60 * 1000;
-    if (graphTimeframe === '24h') msLimit = 24 * 60 * 60 * 1000;
-
-    const minTime = now - msLimit;
-    const totalTimeSpan = msLimit;
+    const WINDOW_MS = graphZoomMs; // НОВЕ: Використовуємо зум-стейт
+    
+    const viewEndTime = now - panOffsetMs;
+    const viewStartTime = viewEndTime - WINDOW_MS;
 
     const visibleData = Array.from(dataMap.entries())
       .map(([t, v]) => ({ t, v }))
-      .filter(d => d.t >= minTime && d.t <= now)
+      .filter(d => d.t >= viewStartTime && d.t <= viewEndTime)
       .sort((a, b) => a.t - b.t);
 
     if (isGraphLoading && visibleData.length === 0) {
       return (
         <div className="flex-1 flex flex-col items-center justify-center">
            <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-           <span className="text-gray-500 text-xs">Завантаження з БД...</span>
+           <span className="text-gray-500 text-xs">Завантаження...</span>
         </div>
       );
     }
@@ -285,7 +343,16 @@ export default function DashboardPage() {
     if (visibleData.length === 0) {
       return (
         <div className="flex-1 flex flex-col items-center justify-center py-10">
-          <div className="text-gray-500 mb-2 text-xs">Немає активних даних за обраний період.</div>
+          {/* НОВЕ: Кнопки зуму навіть коли пусто, щоб можна було віддалити */}
+          <div className="flex gap-2 mb-4 justify-center">
+            {[{ label: '1 ХВ', ms: 60 * 1000 }, { label: '5 ХВ', ms: 5 * 60 * 1000 }, { label: '10 ХВ', ms: 10 * 60 * 1000 }, { label: '30 ХВ', ms: 30 * 60 * 1000 }].map(zoom => (
+               <button key={zoom.label} onClick={() => setGraphZoomMs(zoom.ms)} className={`px-3 py-1 rounded-full text-[10px] font-bold ${graphZoomMs === zoom.ms ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400'}`}>
+                  {zoom.label}
+               </button>
+            ))}
+          </div>
+          <div className="text-gray-500 mb-2 text-xs">Немає даних у цьому проміжку.</div>
+          {panOffsetMs > 0 && <button onClick={() => setPanOffsetMs(0)} className="text-blue-400 text-xs mt-2 underline">Повернутися до зараз</button>}
         </div>
       );
     }
@@ -293,21 +360,15 @@ export default function DashboardPage() {
     const values = visibleData.map(d => d.v);
     const max = Math.max(...values, 1);
     const min = Math.min(...values, 0);
-    const MathRange = max - min === 0 ? 1 : max - min; 
+    const MathRange = max - min === 0 ? 10 : max - min; 
 
+    const ySteps = [0, 0.25, 0.5, 0.75, 1];
     const GAP_THRESHOLD = 15000; 
-    const gaps = [];
     const segments = [];
-    
     let currentSegment = [visibleData[0]];
-    
-    if (visibleData[0].t - minTime > GAP_THRESHOLD) {
-        gaps.push({ start: minTime, end: visibleData[0].t });
-    }
     
     for(let i = 1; i < visibleData.length; i++) {
        if(visibleData[i].t - visibleData[i-1].t > GAP_THRESHOLD) {
-           gaps.push({ start: visibleData[i-1].t, end: visibleData[i].t });
            segments.push(currentSegment);
            currentSegment = [visibleData[i]];
        } else {
@@ -316,79 +377,88 @@ export default function DashboardPage() {
     }
     segments.push(currentSegment);
     
-    if (now - visibleData[visibleData.length-1].t > GAP_THRESHOLD) {
-       gaps.push({ start: visibleData[visibleData.length-1].t, end: now });
-    }
-
-    const steps = [];
-    const stepMs = msLimit / 4;
-    for(let i = 0; i <= 4; i++) {
-       steps.push(minTime + (i * stepMs));
-    }
+    const handleTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
+    const handleTouchMove = (e) => {
+      if (!touchStartX.current) return;
+      const diff = e.touches[0].clientX - touchStartX.current;
+      setPanOffsetMs(prev => Math.max(0, prev + (diff * (graphZoomMs / 1000)))); // Свайп залежить від зуму
+      touchStartX.current = e.touches[0].clientX;
+    };
+    const handleTouchEnd = () => { touchStartX.current = null; };
 
     return (
-      <div className="flex flex-col relative w-full h-full min-h-[280px]">
-        <div className="flex gap-2 mb-4 justify-center">
-          {['1m', '30m', '1h', '24h'].map(tf => (
-            <button key={tf} onClick={() => setGraphTimeframe(tf)} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-colors ${graphTimeframe === tf ? 'bg-blue-600 text-white' : 'bg-gray-900/50 text-gray-400 border border-gray-800 hover:bg-gray-800'}`}>
-              {tf.toUpperCase()}
-            </button>
-          ))}
-        </div>
-
-        <div className="absolute top-14 right-2 text-xs font-bold z-20 bg-[#0b0c10]/80 px-2 py-1 rounded" style={{ color: selectedGraph.color }}>
-          Макс: {Math.round(max)} {selectedGraph.unit}
+      <div className="flex flex-col relative w-full h-full min-h-[350px]">
+        {/* НОВЕ: Кнопки керування масштабом (Zoom) */}
+        <div className="flex gap-2 mb-2 justify-center">
+            {[
+                { label: '1 ХВ', ms: 60 * 1000 },
+                { label: '5 ХВ', ms: 5 * 60 * 1000 },
+                { label: '10 ХВ', ms: 10 * 60 * 1000 },
+                { label: '30 ХВ', ms: 30 * 60 * 1000 }
+            ].map(zoom => (
+                <button
+                    key={zoom.label}
+                    onClick={() => setGraphZoomMs(zoom.ms)}
+                    className={`px-3 py-1 rounded-full text-[10px] font-bold ${graphZoomMs === zoom.ms ? 'bg-blue-600 text-white shadow-md' : 'bg-[#111318] border border-gray-800 text-gray-500 hover:text-white'}`}
+                >
+                    {zoom.label}
+                </button>
+            ))}
         </div>
         
-        <div className="flex-1 relative mt-2 border-b border-l border-gray-800/80">
+        <div className="flex justify-between items-end mb-4">
+          <div>
+            <div className="text-xl font-bold" style={{ color: selectedGraph.color }}>
+              {visibleData[visibleData.length-1]?.v} {selectedGraph.unit}
+            </div>
+            <div className="text-[10px] text-gray-500">
+              Поточне значення {panOffsetMs > 0 ? '(Історія)' : ''}
+            </div>
+          </div>
+          {panOffsetMs > 0 && (
+             <button onClick={() => setPanOffsetMs(0)} className="bg-blue-600/20 text-blue-400 border border-blue-500/50 px-3 py-1 rounded-lg text-xs font-bold animate-pulse">
+               НАЗАД ДО LIVE
+             </button>
+          )}
+        </div>
+        
+        <div className="flex-1 relative mt-2 border-b border-l border-gray-800/80 cursor-ew-resize touch-pan-x" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+          {ySteps.map((pct, i) => {
+             const val = min + (MathRange * pct);
+             return (
+               <div key={i} className="absolute left-[-35px] text-[9px] text-gray-500" style={{ bottom: `${pct * 100}%`, transform: 'translateY(50%)' }}>
+                 {Math.round(val)}
+               </div>
+             )
+          })}
+
           <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full overflow-visible" preserveAspectRatio="none">
-            <defs>
-              <pattern id="diagonalHatch" width="4" height="4" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
-                <line x1="0" y1="0" x2="0" y2="4" stroke="#4b5563" strokeWidth="1" />
-              </pattern>
-            </defs>
-            
-            {gaps.map((gap, idx) => {
-               const x1 = ((gap.start - minTime) / totalTimeSpan) * 100;
-               const x2 = ((gap.end - minTime) / totalTimeSpan) * 100;
-               const safeX1 = Math.max(0, x1);
-               const safeX2 = Math.min(100, x2);
-               if (safeX2 <= safeX1) return null;
-               
-               return <rect key={`gap-${idx}`} x={safeX1} y="0" width={safeX2 - safeX1} height="100" fill="url(#diagonalHatch)" opacity="0.4" />
-            })}
+            {ySteps.map((pct, i) => (
+               <line key={`grid-${i}`} x1="0" y1={100 - (pct * 100)} x2="100" y2={100 - (pct * 100)} stroke="#1f2937" strokeWidth="0.5" strokeDasharray="2,2" />
+            ))}
 
             {segments.map((seg, idx) => {
-               if (seg.length === 1) {
-                 const x = ((seg[0].t - minTime) / totalTimeSpan) * 100;
-                 const y = 100 - (((seg[0].v - min) / MathRange) * 100);
-                 return <circle key={`seg-dot-${idx}`} cx={x} cy={y} r="2" fill={selectedGraph.color} />;
-               }
+               if (seg.length === 1) return null;
                
                const pts = seg.map((d) => {
-                 const x = ((d.t - minTime) / totalTimeSpan) * 100;
+                 const x = ((d.t - viewStartTime) / WINDOW_MS) * 100;
                  const y = 100 - (((d.v - min) / MathRange) * 100);
                  return `${x},${y}`;
                }).join(' ');
 
-               const firstX = ((seg[0].t - minTime) / totalTimeSpan) * 100;
-               const lastX = ((seg[seg.length - 1].t - minTime) / totalTimeSpan) * 100;
-
                return (
-                 <g key={`seg-group-${idx}`}>
-                   <polygon fill={`${selectedGraph.color}20`} points={`${firstX},100 ${pts} ${lastX},100`} />
-                   <polyline fill="none" stroke={selectedGraph.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={pts} className="drop-shadow-lg" />
-                 </g>
+                 <polyline key={`line-${idx}`} fill="none" stroke={selectedGraph.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={pts} className="drop-shadow-lg" />
                );
             })}
           </svg>
         </div>
         
-        <div className="flex justify-between w-full px-1 text-[9px] text-gray-500 font-mono mt-2">
-            {steps.map((time, i) => (
-                <span key={i}>{formatStepTime(time, graphTimeframe)}</span>
-            ))}
+        <div className="flex justify-between w-full pl-2 pr-1 text-[9px] text-gray-500 font-mono mt-2">
+            <span>{new Date(viewStartTime).toLocaleTimeString('uk-UA', {hour: '2-digit', minute:'2-digit'})}</span>
+            <span>{new Date(viewStartTime + WINDOW_MS/2).toLocaleTimeString('uk-UA', {hour: '2-digit', minute:'2-digit'})}</span>
+            <span>{new Date(viewEndTime).toLocaleTimeString('uk-UA', {hour: '2-digit', minute:'2-digit'})}</span>
         </div>
+        <div className="text-center mt-2 text-[9px] text-gray-600">Свайпайте вліво/вправо для історії</div>
       </div>
     );
   };
@@ -397,7 +467,8 @@ export default function DashboardPage() {
     const cmdInfo = commands[item.id];
     const metricData = telemetry.metrics[item.id] ? telemetry.metrics[item.id] : { value: '--', unit: cmdInfo?.unit || '' };
     const isSpeedHero = item.id === 'SPEED' && item.size === 'col-span-3';
-    
+    const isWaitingData = telemetry.isConnected && metricData.value === '--';
+
     const speedVal = metricData.value !== '--' ? Number(metricData.value) : 0;
     const normalizedSpeed = Math.min(Math.max(speedVal, 0), 220); 
     const needleAngle = -135 + ((normalizedSpeed / 220) * 270);
@@ -407,6 +478,12 @@ export default function DashboardPage() {
       <div key={item.id} draggable={isEditMode} onDragStart={(e) => (dragItem.current = index)} onDragEnter={(e) => (dragOverItem.current = index)} onDragEnd={handleSort} onDragOver={(e) => e.preventDefault()}
         className={`relative ${item.size} bg-[#111318] p-4 rounded-2xl border ${isEditMode ? 'border-blue-500/50 cursor-move pb-16' : 'border-gray-800'} flex flex-col items-center justify-center transition-all duration-300 ease-in-out ${!item.visible && !isEditMode ? 'hidden' : ''} ${!item.visible && isEditMode ? 'opacity-30' : ''}`}
       >
+        {!isSpeedHero && !isEditMode && (
+          <div className="absolute top-2 right-2 text-gray-700">
+            {WIDGET_ICONS[item.id] || WIDGET_ICONS.DEFAULT}
+          </div>
+        )}
+
         {isEditMode && (
           <>
             <div className="absolute top-2 right-2 flex gap-1 z-10">
@@ -433,15 +510,26 @@ export default function DashboardPage() {
                <div className="w-1.5 h-[90px] bg-red-500 rounded-full absolute bottom-1/2 shadow-[0_0_10px_rgba(239,68,68,0.8)] origin-bottom"></div>
                <div className="w-5 h-5 bg-[#0b0c10] border-[4px] border-red-500 rounded-full absolute"></div>
             </div>
-            <span className="text-6xl font-black tracking-tighter tabular-nums text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-400 relative z-10 pt-10">{metricData.value}</span>
+            
+            {isWaitingData ? (
+               <div className="text-gray-600 animate-pulse mt-4">Очікування...</div>
+            ) : (
+               <span className="text-6xl font-black tracking-tighter tabular-nums text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-400 relative z-10 pt-10">{metricData.value}</span>
+            )}
             <span className="text-[10px] text-gray-500 font-bold tracking-widest mt-1 relative z-10">КМ/ГОД</span>
           </div>
         ) : (
           <>
-            <span className={`font-bold transition-all duration-300 tabular-nums ${item.size === 'col-span-1' ? 'text-2xl' : 'text-4xl'} ${metricData.value === '--' ? 'text-gray-600' : 'text-white'}`}>
-              {metricData.value}
-              <span className="text-[10px] text-gray-500 ml-1 font-medium">{metricData.unit}</span>
-            </span>
+            {isWaitingData ? (
+               <div className="h-8 flex items-center justify-center">
+                 <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+               </div>
+            ) : (
+               <span className={`font-bold transition-all duration-300 tabular-nums ${item.size === 'col-span-1' ? 'text-2xl' : 'text-4xl'} ${metricData.value === '--' ? 'text-gray-600' : 'text-white'}`}>
+                 {metricData.value}
+                 <span className="text-[10px] text-gray-500 ml-1 font-medium">{metricData.unit}</span>
+               </span>
+            )}
             <span className="text-[10px] text-gray-500/80 font-bold mt-1 text-center leading-tight uppercase tracking-wider">{cmdInfo?.desc || item.id}</span>
           </>
         )}
@@ -485,6 +573,7 @@ export default function DashboardPage() {
           ВІДКЛЮЧИТИ
         </button>
       )}
+
 
       <div className="grid grid-cols-3 gap-3">
         {layout.map((item, index) => renderMetricCard(item, index))}
@@ -555,11 +644,71 @@ export default function DashboardPage() {
         РОЗШИРЕНИЙ ЗВІТ ЕБУ (ІСТОРІЯ)
       </button>
 
+      {/* Віджет Динаміки 0-100 */}
+      <div className="bg-[#111318] p-4 rounded-2xl border border-gray-800 shadow-lg">
+        <div className="flex justify-between items-center mb-4">
+           <h3 className="text-xs font-bold tracking-wide text-gray-300 uppercase">Динаміка 0-100 км/год</h3>
+           <span className="text-[9px] bg-red-900/30 text-red-400 px-2 py-1 rounded font-bold uppercase tracking-widest">PERFORMANCE</span>
+        </div>
+        
+        <div className="flex flex-col items-center justify-center p-4 bg-gray-950/50 rounded-xl border border-gray-800/50 mb-4">
+           <span className="text-4xl font-black tabular-nums font-mono text-white mb-2">
+             {formatPerfTime(perfTime)}
+           </span>
+           
+           {perfState === 'idle' && (
+              <button onClick={togglePerfTimer} disabled={!telemetry.isConnected} className="bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-white font-bold py-2 px-8 rounded-full text-xs transition-colors shadow-[0_0_10px_rgba(37,99,235,0.3)]">
+                ПОЧАТИ ЗАМІР
+              </button>
+           )}
+           {perfState === 'ready' && (
+              <div className="flex flex-col items-center">
+                 <button onClick={togglePerfTimer} className="bg-orange-600 text-white font-bold py-2 px-8 rounded-full text-xs animate-pulse mb-1">ОЧІКУВАННЯ СТАРТУ...</button>
+                 <span className="text-[9px] text-gray-500">Натисніть на газ для початку</span>
+              </div>
+           )}
+           {perfState === 'running' && (
+              <button onClick={togglePerfTimer} className="bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-8 rounded-full text-xs shadow-[0_0_10px_rgba(220,38,38,0.5)]">
+                СКАСУВАТИ ({Math.round(telemetry.speed || 0)} км/год)
+              </button>
+           )}
+           {perfState === 'finished' && (
+              <button onClick={togglePerfTimer} className="bg-gray-800 hover:bg-gray-700 text-white font-bold py-2 px-8 rounded-full text-xs">
+                СКИНУТИ
+              </button>
+           )}
+        </div>
+
+        {perfRecords.length > 0 && (
+          <div>
+            <div className="text-[10px] text-gray-500 font-bold mb-2 uppercase">Останні заміри:</div>
+            <div className="flex gap-2 overflow-x-auto pb-2">
+               {(() => {
+                  const best = [...perfRecords].sort((a,b) => a.data[0].timeMs - b.data[0].timeMs)[0];
+                  return (
+                    <div onClick={() => setSelectedPerfRecord(best)} className="flex-shrink-0 bg-green-900/20 border border-green-800/50 p-2 rounded-lg text-center w-24 cursor-pointer hover:bg-green-900/40 transition-colors">
+                      <div className="text-[9px] text-green-400 mb-1">РЕКОРД</div>
+                      <div className="font-mono font-bold text-sm text-green-300">{formatPerfTime(best.data[0].timeMs)}</div>
+                    </div>
+                  )
+               })()}
+               
+               {perfRecords.map((r, i) => (
+                 <div key={i} onClick={() => setSelectedPerfRecord(r)} className="flex-shrink-0 bg-gray-900/50 border border-gray-800 p-2 rounded-lg text-center w-24 cursor-pointer hover:bg-gray-800 transition-colors">
+                   <div className="text-[9px] text-gray-500 mb-1">{new Date(r.timestamp).toLocaleTimeString('uk-UA', {hour:'2-digit', minute:'2-digit'})}</div>
+                   <div className="font-mono font-bold text-sm text-gray-300">{formatPerfTime(r.data[0].timeMs)}</div>
+                 </div>
+               ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* РОЗШИРЕНИЙ АНАЛІЗ ECU МОДАЛКА З ІСТОРІЄЮ */}
       {showAnalysisModal && (
         <div className="fixed inset-0 z-[110] bg-black/80 backdrop-blur-sm flex items-end md:items-center justify-center animate-in fade-in duration-200">
           <div className="bg-[#0b0c10] w-full md:w-3/4 max-w-2xl rounded-t-3xl md:rounded-3xl border border-gray-800 shadow-2xl h-[85vh] md:h-[70vh] flex flex-col animate-in slide-in-from-bottom-10">
-            <div className="p-5 border-b border-gray-800 flex flex-col gap-3 bg-[#111318] rounded-t-3xl">
+            <div className="p-5 border-b border-gray-800 flex flex-col gap-4 bg-[#111318] rounded-t-3xl">
               <div className="flex justify-between items-center">
                 <h2 className="font-bold text-sm text-blue-400 uppercase tracking-wider flex items-center gap-2">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
@@ -567,32 +716,15 @@ export default function DashboardPage() {
                 </h2>
                 <button onClick={() => setShowAnalysisModal(false)} className="text-gray-500 hover:text-white p-1">✕</button>
               </div>
-              <div className="flex gap-2 items-center">
-                <select 
-                  className="bg-gray-900 border border-gray-700 text-xs text-white rounded-lg px-2 py-2 flex-1 focus:outline-none"
-                  value={selectedHistoryId}
-                  onChange={(e) => {
-                    const id = e.target.value;
-                    setSelectedHistoryId(id);
-                    if (id === "") {
-                      setAnalysisResults(liveAnalysisResults);
-                    } else {
-                      const rep = diagnosticHistory.find(r => r.id.toString() === id);
-                      if (rep) setAnalysisResults(rep.data);
-                    }
-                  }}
-                >
-                  <option value="">Поточна сесія (Сьогодні)</option>
-                  {diagnosticHistory.map(r => (
-                    <option key={r.id} value={r.id}>
-                      {new Date(r.timestamp).toLocaleString('uk-UA')} ({r.data.length} блоків)
-                    </option>
-                  ))}
-                </select>
-                <button onClick={runDetailedAnalysis} disabled={!telemetry.isConnected || isAnalyzing} className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-xs font-bold transition-colors">
-                  НОВИЙ
+              
+              {analysisResults.length === 0 && (
+                <button onClick={runDetailedAnalysis} disabled={!telemetry.isConnected || isAnalyzing} className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white py-3 rounded-xl text-xs font-bold transition-colors shadow-[0_0_15px_rgba(37,99,235,0.3)]">
+                  + СТВОРИТИ НОВИЙ ЗВІТ
                 </button>
-              </div>
+              )}
+              {analysisResults.length > 0 && (
+                 <button onClick={() => setAnalysisResults([])} className="text-xs text-blue-400 text-left underline mb-2">← Назад до списку</button>
+              )}
             </div>
             
             <div className="p-5 flex-1 overflow-y-auto">
@@ -606,26 +738,36 @@ export default function DashboardPage() {
                   <h3 className="text-gray-300 font-bold mb-2">Опитування блоків...</h3>
                   <p className="text-[10px] text-gray-500">Будь ласка, не вимикайте запалювання</p>
                 </div>
-              ) : (
+              ) : analysisResults.length > 0 ? (
                 <div className="space-y-3">
-                  {analysisResults.length > 0 ? (
-                    analysisResults.map((res, i) => (
-                      <div key={i} className="flex justify-between items-center bg-[#111318] p-4 rounded-xl border border-gray-800 hover:border-gray-700 transition-colors">
-                        <div className="pr-4">
-                          <div className="text-xs font-bold text-gray-200">{res.name}</div>
-                          <div className="text-[10px] text-gray-500 leading-tight mt-1">{res.desc}</div>
+                  {analysisResults.map((res, i) => (
+                    <div key={i} className="flex justify-between items-center bg-[#111318] p-4 rounded-xl border border-gray-800 hover:border-gray-700 transition-colors">
+                      <div className="pr-4">
+                        <div className="text-xs font-bold text-gray-200">{res.name}</div>
+                        <div className="text-[10px] text-gray-500 leading-tight mt-1">{res.desc}</div>
+                      </div>
+                      <div className="text-right whitespace-nowrap">
+                        <span className="text-lg font-black text-blue-400 tabular-nums">{res.value}</span>
+                        <span className="text-[10px] text-gray-500 ml-1 font-medium">{res.unit}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <div className="text-[10px] text-gray-500 font-bold uppercase mb-2">Історія перевірок:</div>
+                  {diagnosticHistory.length === 0 ? (
+                    <div className="text-center py-10 text-gray-600 text-xs">Немає збережених звітів</div>
+                  ) : (
+                    diagnosticHistory.map(r => (
+                      <div key={r.id} onClick={() => setAnalysisResults(r.data)} className="bg-[#111318] border border-gray-800 p-4 rounded-xl flex justify-between items-center cursor-pointer hover:bg-gray-900 transition-colors">
+                        <div>
+                           <div className="text-sm font-bold text-gray-200">{new Date(r.timestamp).toLocaleDateString('uk-UA')}</div>
+                           <div className="text-[10px] text-gray-500">{new Date(r.timestamp).toLocaleTimeString('uk-UA')}</div>
                         </div>
-                        <div className="text-right whitespace-nowrap">
-                          <span className="text-lg font-black text-blue-400 tabular-nums">{res.value}</span>
-                          <span className="text-[10px] text-gray-500 ml-1 font-medium">{res.unit}</span>
-                        </div>
+                        <div className="text-xs text-blue-400 bg-blue-900/20 px-3 py-1 rounded-full">{r.data.length} параметрів →</div>
                       </div>
                     ))
-                  ) : (
-                    <div className="text-center py-20 text-gray-500 text-sm flex flex-col items-center">
-                      <svg className="w-10 h-10 mb-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                      Немає даних аналізу
-                    </div>
                   )}
                 </div>
               )}
@@ -688,6 +830,86 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* НОВЕ: ДЕТАЛІ ЗАМІРУ 0-100 МОДАЛКА */}
+      {selectedPerfRecord && (
+        <div className="fixed inset-0 z-[130] bg-black/80 backdrop-blur-md flex items-end md:items-center justify-center animate-in fade-in p-4">
+           <div className="bg-[#0b0c10] w-full max-w-2xl rounded-3xl border border-gray-800 shadow-2xl h-[75vh] flex flex-col animate-in zoom-in-95 overflow-hidden">
+              <div className="p-5 border-b border-gray-800 flex justify-between items-center bg-[#111318]">
+                 <div>
+                    <h2 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2">
+                       <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                       Деталі заміру
+                    </h2>
+                    <div className="text-[10px] text-gray-500 mt-1">{new Date(selectedPerfRecord.timestamp).toLocaleString('uk-UA')}</div>
+                 </div>
+                 <div className="flex items-center gap-4">
+                    <span className="text-2xl font-black text-white">{formatPerfTime(selectedPerfRecord.data[0].timeMs)}</span>
+                    <button onClick={() => setSelectedPerfRecord(null)} className="text-gray-400 bg-gray-900 p-2 rounded-full hover:bg-gray-800 transition-colors">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                 </div>
+              </div>
+              <div className="flex-1 p-5 overflow-y-auto space-y-6">
+                  {(() => {
+                      const runData = selectedPerfRecord.data[0].telemetry || [];
+                      if (runData.length === 0) return <div className="text-gray-500 text-sm">Немає збережених даних телеметрії для цього заміру.</div>;
+                      
+                      const maxRpm = Math.max(...runData.map(d => d.rpm));
+                      const maxLoad = Math.max(...runData.map(d => d.load));
+                      const maxThrottle = Math.max(...runData.map(d => d.throttle));
+                      const startTemp = runData[0].coolant;
+
+                      return (
+                        <>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                             <div className="bg-[#111318] p-3 rounded-xl border border-gray-800">
+                                <div className="text-[9px] text-gray-500 uppercase">Макс Оберти</div>
+                                <div className="text-lg font-bold text-purple-400">{maxRpm} rpm</div>
+                             </div>
+                             <div className="bg-[#111318] p-3 rounded-xl border border-gray-800">
+                                <div className="text-[9px] text-gray-500 uppercase">Пік Навантаження</div>
+                                <div className="text-lg font-bold text-orange-400">{maxLoad}%</div>
+                             </div>
+                             <div className="bg-[#111318] p-3 rounded-xl border border-gray-800">
+                                <div className="text-[9px] text-gray-500 uppercase">Макс Дросель</div>
+                                <div className="text-lg font-bold text-blue-400">{maxThrottle}%</div>
+                             </div>
+                             <div className="bg-[#111318] p-3 rounded-xl border border-gray-800">
+                                <div className="text-[9px] text-gray-500 uppercase">Темп на старті</div>
+                                <div className="text-lg font-bold text-green-400">{startTemp}°C</div>
+                             </div>
+                          </div>
+
+                          <div>
+                             <h3 className="text-[10px] text-gray-500 font-bold uppercase mb-3 border-b border-gray-800 pb-2">Покрокова телеметрія</h3>
+                             <div className="space-y-1">
+                                <div className="flex text-[9px] text-gray-600 font-bold px-2 uppercase">
+                                   <div className="w-12">Час</div>
+                                   <div className="w-16">Швидк.</div>
+                                   <div className="w-16">Оберти</div>
+                                   <div className="w-16">Навант.</div>
+                                   <div className="flex-1">Дросель</div>
+                                </div>
+                                {runData.map((pt, i) => (
+                                  <div key={i} className="flex text-xs font-mono px-2 py-1.5 bg-[#111318] rounded-lg border border-gray-800/50 hover:border-gray-700">
+                                     <div className="w-12 text-gray-500">{(pt.t/1000).toFixed(1)}s</div>
+                                     <div className="w-16 text-white font-bold">{pt.speed}</div>
+                                     <div className="w-16 text-purple-400">{pt.rpm}</div>
+                                     <div className="w-16 text-orange-400">{pt.load}%</div>
+                                     <div className="flex-1 text-blue-400">{pt.throttle}%</div>
+                                  </div>
+                                ))}
+                             </div>
+                          </div>
+                        </>
+                      )
+                  })()}
+              </div>
+           </div>
+        </div>
+      )}
+
     </div>
   );
 }
