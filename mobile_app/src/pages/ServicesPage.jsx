@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
+import { Geolocation } from '@capacitor/geolocation'; // ДОДАНО
+import { Capacitor } from '@capacitor/core';          // ДОДАНО
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -42,32 +44,43 @@ export default function ServicesPage() {
   const [isLoadingLocation, setIsLoadingLocation] = useState(true);
 
   useEffect(() => {
-    // Отримання геолокації пристрою (ноутбук або смартфон)
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const userPos = [pos.coords.latitude, pos.coords.longitude];
-          setPosition(userPos);
-          // Генеруємо фейкове СТО поруч із користувачем (+0.005 градусів на північ/схід)
-          setStoLocation([pos.coords.latitude + 0.005, pos.coords.longitude + 0.005]);
-          setIsLoadingLocation(false);
-        },
-        (err) => {
-          console.warn("Геолокація недоступна або відхилена, встановлено координати за замовчуванням.", err);
-          // Дефолтні координати (Київ)
-          const defaultPos = [50.4501, 30.5234];
-          setPosition(defaultPos);
-          setStoLocation([50.4551, 30.5284]);
-          setIsLoadingLocation(false);
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
-    } else {
-      const defaultPos = [50.4501, 30.5234];
-      setPosition(defaultPos);
-      setStoLocation([50.4551, 30.5284]);
-      setIsLoadingLocation(false);
-    }
+    const fetchLocation = async () => {
+      try {
+        let userPos;
+        
+        // Якщо це телефон (Capacitor)
+        if (Capacitor.isNativePlatform()) {
+          // Запитуємо дозволи (викличе системне віконце на телефоні)
+          const permStatus = await Geolocation.requestPermissions();
+          if (permStatus.location === 'granted') {
+            const coordinates = await Geolocation.getCurrentPosition();
+            userPos = [coordinates.coords.latitude, coordinates.coords.longitude];
+          } else {
+            throw new Error("Дозвіл на локацію відхилено");
+          }
+        } 
+        // Якщо це ноутбук (Браузер)
+        else {
+          userPos = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(
+              pos => resolve([pos.coords.latitude, pos.coords.longitude]),
+              err => reject(err)
+            );
+          });
+        }
+
+        setPosition(userPos);
+        setStoLocation([userPos[0] + 0.005, userPos[1] + 0.005]);
+      } catch (error) {
+        console.warn("Помилка геолокації, ставимо Київ:", error);
+        setPosition([50.4501, 30.5234]);
+        setStoLocation([50.4551, 30.5284]);
+      } finally {
+        setIsLoadingLocation(false);
+      }
+    };
+
+    fetchLocation();
   }, []);
 
   return (
