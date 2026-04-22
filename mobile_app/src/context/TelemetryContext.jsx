@@ -105,26 +105,27 @@ export function TelemetryProvider({ children }) {
 
   // ── Profile fetch ───────────────────────────────────────────────────────────
 
+  // ── Profile fetch ───────────────────────────────────────────────────────────
+
   const fetchUserProfile = useCallback(async () => {
     const token = requireAuth();
-    if (!token) return;
+    if (!token) {
+      setIsLoading(false); // ВАЖЛИВО: вимикаємо загрузку, якщо немає токена
+      return;
+    }
 
     try {
-      const res = await fetch('http://localhost:3000/api/user/profile', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // --- BYPASS СЕРВЕРА ДЛЯ ANDROID ---
+      // Відключаємо запит до localhost:3000, щоб телефон не "зависав".
+      // Імітуємо успішну відповідь з профілем користувача:
+      const user = {
+        name: 'Vladislav (Admin)',
+        email: 'vladislav@carscanner.local',
+        vehicle: 'BMW 5 Series',
+        vin: 'WBA0000000000000',
+      };
 
-      if (res.status === 401 || res.status === 403) {
-        localStorage.removeItem('obd_token');
-        navigate('/login', { replace: true });
-        return;
-      }
-
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
-
-      const { user } = await res.json();
-
-      // Load recent telemetry from local DB for chart pre-population
+      // Завантажуємо локальну історію телеметрії (БД працює на телефоні автономно)
       const recentRows  = await getRecentTelemetry(1500);
       const histSpeed   = [], histRpm = [], histTemp = [], histFuel = [];
       let initialMetrics = {};
@@ -158,10 +159,10 @@ export function TelemetryProvider({ children }) {
       console.error('[Telemetry] fetchUserProfile:', err);
       setData(prev => ({ ...prev, profileError: err.message }));
     } finally {
+      // Гарантовано вимикаємо спінер завантаження
       setIsLoading(false);
     }
   }, [navigate, requireAuth]);
-
   // ── OBD polling loop ─────────────────────────────────────────────────────────
 
   const _startPolling = useCallback(async (signal) => {
