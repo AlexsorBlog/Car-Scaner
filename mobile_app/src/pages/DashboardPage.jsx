@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { useTelemetry } from '../hooks/useTelemetry';
-import { obdScanner } from '../services/bleService.js';
+// ДОДАНО ІМПОРТ TRANSPORT:
+import { obdScanner, TRANSPORT } from '../services/bleService.js'; 
 import { obd } from '../obd/index.js';
 import { commands } from '../obd/commands.js';
 import { getRecentTelemetry, saveDiagnosticReport, getDiagnosticReports } from '../services/db.js';
@@ -53,10 +54,13 @@ const MiniGraph = ({ data, color, label, unit, onClick }) => {
 };
 
 export default function DashboardPage() {
-  const navigate = useNavigate(); // Moved INSIDE the component
+  const navigate = useNavigate();
   const telemetry = useTelemetry();
   
-  const [useEmulator, setUseEmulator] = useState(true);
+  // ВИПРАВЛЕННЯ 1: Автовизначення платформи (Телефон = Bluetooth за замовчуванням)
+  const isNative = Capacitor.getPlatform() !== 'web';
+  const [useEmulator, setUseEmulator] = useState(!isNative);
+  
   const [timerState, setTimerState] = useState('idle');
   const [time, setTime] = useState(0);
   
@@ -88,6 +92,11 @@ export default function DashboardPage() {
 
   const dragItem = useRef(null);
   const dragOverItem = useRef(null);
+
+  // ВИПРАВЛЕННЯ 2: Примусово встановлюємо правильний транспортний рівень при старті
+  useEffect(() => {
+    telemetry.setTransportMode(isNative ? TRANSPORT.NATIVE : TRANSPORT.EMULATOR);
+  }, [isNative, telemetry]);
 
   useEffect(() => {
     const activeSensors = layout.filter(item => item.visible).map(item => item.id);
@@ -129,10 +138,12 @@ export default function DashboardPage() {
     return () => { isActive = false; };
   }, [selectedGraph, graphTimeframe]);
 
+  // ВИПРАВЛЕННЯ 3: Передаємо правильні константи (TRANSPORT.EMULATOR / TRANSPORT.NATIVE)
   const toggleMode = () => {
-    const newMode = !useEmulator;
-    setUseEmulator(newMode);
-    obdScanner.setMode(newMode); 
+    if (telemetry.isConnected) return; // Заборона зміни режиму під час з'єднання
+    const nextEmulator = !useEmulator;
+    setUseEmulator(nextEmulator);
+    telemetry.setTransportMode(nextEmulator ? TRANSPORT.EMULATOR : TRANSPORT.NATIVE); 
   };
 
   const handleEditToggle = () => {
