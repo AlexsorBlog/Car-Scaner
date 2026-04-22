@@ -7,37 +7,53 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
+  // У файлі LoginPage.jsx замініть вміст handleLogin на цей:
   const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoading(true);
-    setError('');
 
-    try {
-      // Робимо запит до нашого Node.js сервера
-      const response = await fetch('http://localhost:3000/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone })
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        // Зберігаємо токен у пам'ять телефону (LocalStorage)
-        localStorage.setItem('obd_token', data.token);
-        localStorage.setItem('obd_user', JSON.stringify(data.user));
-        
-        // Переходимо на Дашборд
-        navigate('/dashboard');
-      } else {
-        setError(data.error || 'Помилка авторизації');
-      }
-    } catch (err) {
-      setError('Не вдалося з\'єднатися з сервером');
-    } finally {
+    // Імітація затримки мережі
+    setTimeout(() => {
+      // Просто зберігаємо фейковий токен, щоб PrivateRoute нас пропустив
+      localStorage.setItem('obd_token', 'fake-test-token');
+      localStorage.setItem('obd_user', JSON.stringify({ name: "Admin", role: "Developer" }));
+      
       setIsLoading(false);
-    }
+      navigate('/dashboard');
+    }, 500);
   };
+
+  // const handleLogin = async (e) => {
+  //   e.preventDefault();
+  //   setIsLoading(true);
+  //   setError('');
+
+  //   try {
+  //     // Робимо запит до нашого Node.js сервера
+  //     const response = await fetch('http://localhost:3000/api/auth/login', {
+  //       method: 'POST',
+  //       headers: { 'Content-Type': 'application/json' },
+  //       body: JSON.stringify({ phone })
+  //     });
+
+  //     const data = await response.json();
+
+  //     if (response.ok) {
+  //       // Зберігаємо токен у пам'ять телефону (LocalStorage)
+  //       localStorage.setItem('obd_token', data.token);
+  //       localStorage.setItem('obd_user', JSON.stringify(data.user));
+        
+  //       // Переходимо на Дашборд
+  //       navigate('/dashboard');
+  //     } else {
+  //       setError(data.error || 'Помилка авторизації');
+  //     }
+  //   } catch (err) {
+  //     setError('Не вдалося з\'єднатися з сервером');
+  //   } finally {
+  //     setIsLoading(false);
+  //   }
+  // };
 
   return (
     <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-6 font-sans">
