@@ -4,6 +4,7 @@ import { Geolocation } from '@capacitor/geolocation'; // ДОДАНО
 import { Capacitor } from '@capacitor/core';          // ДОДАНО
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { useTelemetry } from '../context/TelemetryContext.jsx';
 
 // Компонент для автоматичного центрування карти на користувачі
 function LocationMarker({ position }) {

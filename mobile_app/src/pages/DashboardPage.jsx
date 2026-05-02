@@ -20,7 +20,7 @@ const INITIAL_LAYOUT = [
   { id: 'SPEED', visible: true, size: 'col-span-3' },
   { id: 'RPM', visible: true, size: 'col-span-1' },
   { id: 'COOLANT_TEMP', visible: true, size: 'col-span-1' },
-  { id: 'FUEL_LEVEL', visible: true, size: 'col-span-1' },
+  { id: 'FUEL_RATE', visible: true, size: 'col-span-1' },
   { id: 'ENGINE_LOAD', visible: true, size: 'col-span-1' },
   { id: 'INTAKE_TEMP', visible: true, size: 'col-span-1' },
   { id: 'THROTTLE_POS', visible: true, size: 'col-span-1' }
@@ -30,11 +30,17 @@ const WIDGET_ICONS = {
   SPEED: <img src={SpeedIcon} alt="Speed" className="w-4 h-4 opacity-70" style={{ filter: 'invert(0.8)' }} />,
   RPM: <img src={RpmIcon} alt="RPM" className="w-4 h-4 opacity-70" style={{ filter: 'invert(0.8)' }} />,
   COOLANT_TEMP: <img src={CoolantIcon} alt="Coolant Temp" className="w-4 h-4 opacity-70" style={{ filter: 'invert(0.8)' }} />,
-  FUEL_LEVEL: <img src={FuelIcon} alt="Fuel Level" className="w-4 h-4 opacity-70" style={{ filter: 'invert(0.8)' }} />,
+  FUEL_RATE: <img src={FuelIcon} alt="Fuel Rate" className="w-4 h-4 opacity-70" style={{ filter: 'invert(0.8)' }} />,
   ENGINE_LOAD: <img src={EngineIcon} alt="Engine Load" className="w-4 h-4 opacity-70" style={{ filter: 'invert(0.8)' }} />,
   INTAKE_TEMP: <img src={IntakeIcon} alt="Intake Temp" className="w-4 h-4 opacity-70" style={{ filter: 'invert(0.8)' }} />,
   THROTTLE_POS: <img src={ThrottleIcon} alt="Throttle Pos" className="w-4 h-4 opacity-70" style={{ filter: 'invert(0.8)' }} />,
   DEFAULT: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 opacity-70"><circle cx="12" cy="12" r="10"/></svg>
+};
+
+const get24hData = (dataArray) => {
+  if (!dataArray || dataArray.length === 0) return [];
+  const cutoff = Date.now() - (24 * 60 * 60 * 1000);
+  return dataArray.filter(d => d.t >= cutoff);
 };
 
 const MiniGraph = ({ data, color, label, unit, onClick }) => {
@@ -44,15 +50,18 @@ const MiniGraph = ({ data, color, label, unit, onClick }) => {
         <span className="text-[10px] text-gray-500 font-bold">{label}</span>
       </div>
       <div className="h-10 w-full bg-gray-900/50 rounded-lg flex items-center justify-center">
-        <span className="text-[9px] text-gray-600">Немає даних</span>
+        <span className="text-[9px] text-gray-600">Немає даних за добу</span>
       </div>
     </div>
   );
 
   const values = data.map(d => d.v);
-  const max = Math.max(...values, 1);
-  const min = Math.min(...values, 0);
-  const range = max - min === 0 ? 10 : max - min;
+  const rawMax = Math.max(...values);
+  const rawMin = Math.min(...values);
+  const valueRange = rawMax - rawMin === 0 ? 10 : rawMax - rawMin;
+  const max = rawMax + (valueRange * 0.1); 
+  const min = rawMin - (valueRange * 0.1); 
+  const range = max - min;
   
   const points = data.map((d, i) => `${(i / (data.length - 1)) * 100},${100 - (((d.v - min) / range) * 100)}`).join(' ');
 
@@ -63,7 +72,7 @@ const MiniGraph = ({ data, color, label, unit, onClick }) => {
         <span className="text-xs font-bold transition-all duration-300" style={{ color }}>{values[values.length-1]} <span className="text-[9px]">{unit}</span></span>
       </div>
       <svg viewBox="0 0 100 100" className="w-full h-10 overflow-visible" preserveAspectRatio="none">
-        <polyline fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={points} className="drop-shadow-md" />
+        <polyline fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" points={points} className="drop-shadow-md" />
         <polygon fill={`${color}20`} points={`0,100 ${points} 100,100`} />
       </svg>
     </div>
@@ -77,10 +86,21 @@ export default function DashboardPage() {
   const isNative = Capacitor.getPlatform() !== 'web';
   const [useEmulator, setUseEmulator] = useState(!isNative);
   
-  const [layout, setLayout] = useState(() => {
-    const saved = localStorage.getItem('dashboardLayout');
-    return saved ? JSON.parse(saved) : INITIAL_LAYOUT;
+  // Система профілів лайаутів
+  const [layouts, setLayouts] = useState(() => {
+    const saved = localStorage.getItem('dashboardLayoutProfiles');
+    if (saved) return JSON.parse(saved);
+    const oldSaved = localStorage.getItem('dashboardLayout');
+    const baseLayout = oldSaved ? JSON.parse(oldSaved) : INITIAL_LAYOUT;
+    return [{ id: 'default', name: 'Основний', items: baseLayout }];
   });
+  const [activeTabId, setActiveTabId] = useState(() => localStorage.getItem('dashboardActiveTabId') || 'default');
+  
+  // Поточний відображуваний макет (береться з масиву layouts)
+  const [layout, setLayout] = useState(() => {
+    return layouts.find(l => l.id === (localStorage.getItem('dashboardActiveTabId') || 'default'))?.items || INITIAL_LAYOUT;
+  });
+
   const [originalLayout, setOriginalLayout] = useState(layout);
   const [isEditMode, setIsEditMode] = useState(false);
   
@@ -90,8 +110,9 @@ export default function DashboardPage() {
   const [dbGraphData, setDbGraphData] = useState([]);
   const [isGraphLoading, setIsGraphLoading] = useState(false);
   const [panOffsetMs, setPanOffsetMs] = useState(0); 
-  const [graphZoomMs, setGraphZoomMs] = useState(10 * 60 * 1000); // НОВЕ: Масштаб за замовчуванням (10 хв)
+  const [graphZoomMs, setGraphZoomMs] = useState(10 * 60 * 1000); 
   const touchStartX = useRef(null);
+  const hasAutoJumped = useRef(false);
 
   // Analysis State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -104,11 +125,12 @@ export default function DashboardPage() {
   const [errorHistory, setErrorHistory] = useState([]);
   const [showErrorHistoryModal, setShowErrorHistoryModal] = useState(false);
 
-  // 0-100 Performance State
+  // Performance State
   const [perfState, setPerfState] = useState('idle'); 
   const [perfTime, setPerfTime] = useState(0);
   const [perfRecords, setPerfRecords] = useState([]);
-  const [selectedPerfRecord, setSelectedPerfRecord] = useState(null); // НОВЕ: Для модалки з деталями заміру
+  const [perfFilter, setPerfFilter] = useState(100); 
+  const [selectedPerfRecord, setSelectedPerfRecord] = useState(null); 
   
   const perfInterval = useRef(null);
   const perfStartTime = useRef(null);
@@ -129,13 +151,12 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const loadPerfRecords = async () => {
-      const records = await getDiagnosticReports('perf_0_100', 3);
+      const records = await getDiagnosticReports('perf_0_100', 20);
       setPerfRecords(records);
     };
     loadPerfRecords();
   }, []);
 
-  // НОВЕ: Покращений запис 0-100 (Пише всі сенсори)
   useEffect(() => {
     const speed = telemetry.speed || 0;
 
@@ -150,9 +171,7 @@ export default function DashboardPage() {
     }
 
     if (perfState === 'running') {
-      // Записуємо дані з роздільною здатністю ~100 мс
       if (currentRunData.current.length === 0 || Date.now() - currentRunData.current[currentRunData.current.length-1].t > 100) {
-         
          const safeNum = (val) => val && val !== '--' ? Number(val) : 0;
 
          currentRunData.current.push({
@@ -165,43 +184,56 @@ export default function DashboardPage() {
            intake: safeNum(telemetry.metrics['INTAKE_TEMP']?.value)
          });
       }
-
-      if (speed >= 100) {
-        clearInterval(perfInterval.current);
-        setPerfState('finished');
-        
-        const finalTime = Date.now() - perfStartTime.current;
-        setPerfTime(finalTime);
-        
-        const newRecord = { timeMs: finalTime, telemetry: currentRunData.current };
-        saveDiagnosticReport('perf_0_100', [newRecord]).then(() => {
-           getDiagnosticReports('perf_0_100', 3).then(setPerfRecords);
-        });
-      }
     }
   }, [telemetry.speed, perfState, telemetry]);
 
   const togglePerfTimer = () => {
     if (perfState === 'idle' || perfState === 'finished') {
-      setPerfState('ready');
-      setPerfTime(0);
-    } else {
+      if ((telemetry.speed || 0) > 0) {
+          setPerfState('running');
+          perfStartTime.current = Date.now();
+          currentRunData.current = [];
+          perfInterval.current = setInterval(() => setPerfTime(Date.now() - perfStartTime.current), 50);
+      } else {
+          setPerfState('ready');
+          setPerfTime(0);
+      }
+    } else if (perfState === 'ready') {
       setPerfState('idle');
+    } else if (perfState === 'running') {
       clearInterval(perfInterval.current);
-      setPerfTime(0);
+      setPerfState('finished');
+      
+      const finalTime = Date.now() - perfStartTime.current;
+      setPerfTime(finalTime);
+      
+      const newRecord = { timeMs: finalTime, telemetry: currentRunData.current };
+      saveDiagnosticReport('perf_0_100', [newRecord]).then(() => {
+         getDiagnosticReports('perf_0_100', 20).then(setPerfRecords);
+      });
     }
   };
 
-  const formatPerfTime = (ms) => (ms / 1000).toFixed(2) + 's';
+  const getMilestoneTime = (telemetryArray, targetSpeed) => {
+      if (!telemetryArray || telemetryArray.length === 0) return null;
+      const point = telemetryArray.find(d => d.speed >= targetSpeed);
+      return point ? point.t : null;
+  };
+
+  const formatPerfTime = (ms) => ms === null ? '--' : (ms / 1000).toFixed(2) + 's';
 
   useEffect(() => {
-    if (!selectedGraph) return;
+    if (!selectedGraph) {
+       hasAutoJumped.current = false;
+       return;
+    }
+    
     let isActive = true;
     const loadData = async () => {
       setIsGraphLoading(true);
-      const since = Date.now() - (24 * 60 * 60 * 1000); 
+      const since = Date.now() - (7 * 24 * 60 * 60 * 1000); 
       
-      const history = await getRecentTelemetry(10000, since);
+      const history = await getRecentTelemetry(50000, since);
       if (!isActive) return;
       
       const formatted = history
@@ -210,11 +242,31 @@ export default function DashboardPage() {
       
       setDbGraphData(formatted);
       setIsGraphLoading(false);
-      setPanOffsetMs(0); 
+      
+      if (!hasAutoJumped.current) {
+          setPanOffsetMs(0); 
+      }
     };
     loadData();
     return () => { isActive = false; };
   }, [selectedGraph]);
+
+  useEffect(() => {
+    if (!selectedGraph || isGraphLoading || hasAutoJumped.current) return;
+    
+    const liveData = telemetry.history[selectedGraph.id.toLowerCase()] || [];
+    if (dbGraphData.length > 0 || liveData.length > 0) {
+        const now = Date.now();
+        const lastLive = liveData.length > 0 ? liveData[liveData.length - 1].t : 0;
+        const lastDb = dbGraphData.length > 0 ? dbGraphData[dbGraphData.length - 1].t : 0;
+        const lastTime = Math.max(lastLive, lastDb);
+        
+        if (lastTime > 0 && lastTime < (now - graphZoomMs)) {
+            setPanOffsetMs(Math.max(0, now - lastTime - (graphZoomMs * 0.2)));
+        }
+        hasAutoJumped.current = true;
+    }
+  }, [dbGraphData, isGraphLoading, selectedGraph, graphZoomMs, telemetry.history]);
 
   const toggleMode = () => {
     if (telemetry.isConnected) return; 
@@ -223,9 +275,60 @@ export default function DashboardPage() {
     telemetry.setTransportMode(nextEmulator ? TRANSPORT.EMULATOR : TRANSPORT.NATIVE); 
   };
 
+  // --- ЛОГІКА ПРОФІЛІВ (ВКЛАДОК) ---
+  const switchTab = (id) => {
+    if (isEditMode) return; 
+    setActiveTabId(id);
+    const newLayout = layouts.find(l => l.id === id)?.items || INITIAL_LAYOUT;
+    setLayout(newLayout);
+    localStorage.setItem('dashboardActiveTabId', id);
+  };
+
+  const addTab = () => {
+    if (layouts.length >= 4) return;
+    const newId = 'custom_' + Date.now();
+    const newName = `Профіль ${layouts.length}`;
+    const newLayouts = [...layouts, { id: newId, name: newName, items: INITIAL_LAYOUT }];
+    
+    setLayouts(newLayouts);
+    localStorage.setItem('dashboardLayoutProfiles', JSON.stringify(newLayouts));
+    
+    // Одразу активуємо нову вкладку
+    setActiveTabId(newId);
+    setLayout(INITIAL_LAYOUT);
+    localStorage.setItem('dashboardActiveTabId', newId);
+  };
+
+  const deleteTab = (id) => {
+    const newLayouts = layouts.filter(l => l.id !== id);
+    setLayouts(newLayouts);
+    localStorage.setItem('dashboardLayoutProfiles', JSON.stringify(newLayouts));
+    
+    if (activeTabId === id) {
+      setActiveTabId('default');
+      setLayout(newLayouts.find(l => l.id === 'default').items);
+      localStorage.setItem('dashboardActiveTabId', 'default');
+    }
+  };
+
+  // Функція перейменування вкладки
+  const renameTab = (id, currentName) => {
+    const newName = window.prompt("Введіть нову назву для вкладки:", currentName);
+    if (newName && newName.trim().length > 0) {
+       const newLayouts = layouts.map(l => l.id === id ? { ...l, name: newName.trim() } : l);
+       setLayouts(newLayouts);
+       localStorage.setItem('dashboardLayoutProfiles', JSON.stringify(newLayouts));
+    }
+  };
+
   const handleEditToggle = () => {
-    if (isEditMode) localStorage.setItem('dashboardLayout', JSON.stringify(layout));
-    else setOriginalLayout([...layout]);
+    if (isEditMode) {
+      const newLayouts = layouts.map(l => l.id === activeTabId ? { ...l, items: layout } : l);
+      setLayouts(newLayouts);
+      localStorage.setItem('dashboardLayoutProfiles', JSON.stringify(newLayouts));
+    } else {
+      setOriginalLayout([...layout]);
+    }
     setIsEditMode(!isEditMode);
   };
   
@@ -287,6 +390,13 @@ export default function DashboardPage() {
     for (let i = 0; i < totalCmds; i++) {
       const cmd = allCommands[i];
       setAnalysisProgress(Math.round(((i + 1) / totalCmds) * 100));
+      if (
+        cmd.name.includes('PIDS_') ||     // Пропускаємо бітові маски (PIDS_A, DTC_PIDS_B тощо)
+        cmd.name.includes('MIDS_') ||     // Пропускаємо маски моніторів (MIDS_A)
+        cmd.name.startsWith('MONITOR_')   // Пропускаємо всі нерозшифровані тести Mode 06
+      ) {
+        continue; // Переходимо до наступної команди без запиту
+      }
       try {
         const res = await obd.query(cmd);
         if (res && res.value !== null && res.value !== 'NO DATA' && res.value !== 'ERROR') {
@@ -312,6 +422,14 @@ export default function DashboardPage() {
     }
   }, [telemetry.hasScannedErrors, telemetry.errors]);
 
+  const handleZoomChange = (newZoomMs) => {
+      if (panOffsetMs > 0) {
+          const currentCenterOffset = panOffsetMs + (graphZoomMs / 2);
+          setPanOffsetMs(Math.max(0, currentCenterOffset - (newZoomMs / 2)));
+      }
+      setGraphZoomMs(newZoomMs);
+  };
+
   const renderDetailedGraph = () => {
     if (!selectedGraph) return null;
     
@@ -321,7 +439,7 @@ export default function DashboardPage() {
     liveData.forEach(d => dataMap.set(d.t, d.v));
 
     const now = Date.now();
-    const WINDOW_MS = graphZoomMs; // НОВЕ: Використовуємо зум-стейт
+    const WINDOW_MS = graphZoomMs; 
     
     const viewEndTime = now - panOffsetMs;
     const viewStartTime = viewEndTime - WINDOW_MS;
@@ -330,6 +448,22 @@ export default function DashboardPage() {
       .map(([t, v]) => ({ t, v }))
       .filter(d => d.t >= viewStartTime && d.t <= viewEndTime)
       .sort((a, b) => a.t - b.t);
+
+    const jumpToLastActivity = () => {
+       const allData = Array.from(dataMap.entries()).sort((a, b) => a[0] - b[0]);
+       if (allData.length > 0) {
+          const lastPointTime = allData[allData.length - 1][0];
+          setPanOffsetMs(Math.max(0, now - lastPointTime - (graphZoomMs * 0.2)));
+       }
+    };
+
+    const formatTimeAxis = (time) => {
+        const date = new Date(time);
+        if (WINDOW_MS >= 24 * 60 * 60 * 1000) {
+           return date.toLocaleDateString('uk-UA', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        }
+        return date.toLocaleTimeString('uk-UA', {hour: '2-digit', minute:'2-digit'});
+    };
 
     if (isGraphLoading && visibleData.length === 0) {
       return (
@@ -340,65 +474,62 @@ export default function DashboardPage() {
       );
     }
 
-    if (visibleData.length === 0) {
-      return (
-        <div className="flex-1 flex flex-col items-center justify-center py-10">
-          {/* НОВЕ: Кнопки зуму навіть коли пусто, щоб можна було віддалити */}
-          <div className="flex gap-2 mb-4 justify-center">
-            {[{ label: '1 ХВ', ms: 60 * 1000 }, { label: '5 ХВ', ms: 5 * 60 * 1000 }, { label: '10 ХВ', ms: 10 * 60 * 1000 }, { label: '30 ХВ', ms: 30 * 60 * 1000 }].map(zoom => (
-               <button key={zoom.label} onClick={() => setGraphZoomMs(zoom.ms)} className={`px-3 py-1 rounded-full text-[10px] font-bold ${graphZoomMs === zoom.ms ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400'}`}>
-                  {zoom.label}
-               </button>
-            ))}
-          </div>
-          <div className="text-gray-500 mb-2 text-xs">Немає даних у цьому проміжку.</div>
-          {panOffsetMs > 0 && <button onClick={() => setPanOffsetMs(0)} className="text-blue-400 text-xs mt-2 underline">Повернутися до зараз</button>}
-        </div>
-      );
-    }
+    let max = 100;
+    let min = 0;
+    let MathRange = 100;
 
-    const values = visibleData.map(d => d.v);
-    const max = Math.max(...values, 1);
-    const min = Math.min(...values, 0);
-    const MathRange = max - min === 0 ? 10 : max - min; 
+    if (visibleData.length > 0) {
+        const values = visibleData.map(d => d.v);
+        const rawMax = Math.max(...values);
+        const rawMin = Math.min(...values);
+        const valueRange = rawMax - rawMin === 0 ? 10 : rawMax - rawMin;
+        max = rawMax + (valueRange * 0.1); 
+        min = rawMin - (valueRange * 0.1); 
+        MathRange = max - min; 
+    }
 
     const ySteps = [0, 0.25, 0.5, 0.75, 1];
-    const GAP_THRESHOLD = 15000; 
+    const GAP_THRESHOLD = 15 * 60 * 1000; 
     const segments = [];
-    let currentSegment = [visibleData[0]];
     
-    for(let i = 1; i < visibleData.length; i++) {
-       if(visibleData[i].t - visibleData[i-1].t > GAP_THRESHOLD) {
-           segments.push(currentSegment);
-           currentSegment = [visibleData[i]];
-       } else {
-           currentSegment.push(visibleData[i]);
-       }
+    if (visibleData.length > 0) {
+        let currentSegment = [visibleData[0]];
+        for(let i = 1; i < visibleData.length; i++) {
+           if(visibleData[i].t - visibleData[i-1].t > GAP_THRESHOLD) {
+               segments.push(currentSegment);
+               currentSegment = [visibleData[i]];
+           } else {
+               currentSegment.push(visibleData[i]);
+           }
+        }
+        segments.push(currentSegment);
     }
-    segments.push(currentSegment);
     
     const handleTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
     const handleTouchMove = (e) => {
-      if (!touchStartX.current) return;
-      const diff = e.touches[0].clientX - touchStartX.current;
-      setPanOffsetMs(prev => Math.max(0, prev + (diff * (graphZoomMs / 1000)))); // Свайп залежить від зуму
-      touchStartX.current = e.touches[0].clientX;
+      if (touchStartX.current === null) return;
+      const currentX = e.touches[0].clientX;
+      const diffPixels = currentX - touchStartX.current;
+      const msPerPixel = WINDOW_MS / window.innerWidth;
+      
+      setPanOffsetMs(prev => Math.max(0, prev + (diffPixels * msPerPixel)));
+      touchStartX.current = currentX; 
     };
     const handleTouchEnd = () => { touchStartX.current = null; };
 
     return (
       <div className="flex flex-col relative w-full h-full min-h-[350px]">
-        {/* НОВЕ: Кнопки керування масштабом (Zoom) */}
-        <div className="flex gap-2 mb-2 justify-center">
+        <div className="flex gap-2 mb-2 justify-center flex-wrap">
             {[
-                { label: '1 ХВ', ms: 60 * 1000 },
+                { label: '1 хв', ms: 60 * 1000 },
                 { label: '5 ХВ', ms: 5 * 60 * 1000 },
-                { label: '10 ХВ', ms: 10 * 60 * 1000 },
-                { label: '30 ХВ', ms: 30 * 60 * 1000 }
+                { label: '30 ХВ', ms: 30 * 60 * 1000 },
+                { label: '24 ГОД', ms: 24 * 60 * 60 * 1000 },
+                { label: '7 ДНІВ', ms: 7 * 24 * 60 * 60 * 1000 }
             ].map(zoom => (
                 <button
                     key={zoom.label}
-                    onClick={() => setGraphZoomMs(zoom.ms)}
+                    onClick={() => handleZoomChange(zoom.ms)}
                     className={`px-3 py-1 rounded-full text-[10px] font-bold ${graphZoomMs === zoom.ms ? 'bg-blue-600 text-white shadow-md' : 'bg-[#111318] border border-gray-800 text-gray-500 hover:text-white'}`}
                 >
                     {zoom.label}
@@ -409,20 +540,20 @@ export default function DashboardPage() {
         <div className="flex justify-between items-end mb-4">
           <div>
             <div className="text-xl font-bold" style={{ color: selectedGraph.color }}>
-              {visibleData[visibleData.length-1]?.v} {selectedGraph.unit}
+              {visibleData.length > 0 ? visibleData[visibleData.length-1]?.v : '--'} {selectedGraph.unit}
             </div>
             <div className="text-[10px] text-gray-500">
-              Поточне значення {panOffsetMs > 0 ? '(Історія)' : ''}
+              {panOffsetMs > 0 ? 'Архівне значення' : 'Поточне значення'}
             </div>
           </div>
           {panOffsetMs > 0 && (
              <button onClick={() => setPanOffsetMs(0)} className="bg-blue-600/20 text-blue-400 border border-blue-500/50 px-3 py-1 rounded-lg text-xs font-bold animate-pulse">
-               НАЗАД ДО LIVE
+               ДО "ЗАРАЗ"
              </button>
           )}
         </div>
         
-        <div className="flex-1 relative mt-2 border-b border-l border-gray-800/80 cursor-ew-resize touch-pan-x" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+        <div className="flex-1 relative mt-2 border-b border-l border-gray-800/80 cursor-ew-resize touch-pan-x overflow-hidden" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
           {ySteps.map((pct, i) => {
              const val = min + (MathRange * pct);
              return (
@@ -438,7 +569,7 @@ export default function DashboardPage() {
             ))}
 
             {segments.map((seg, idx) => {
-               if (seg.length === 1) return null;
+               if (seg.length <= 1) return null;
                
                const pts = seg.map((d) => {
                  const x = ((d.t - viewStartTime) / WINDOW_MS) * 100;
@@ -447,18 +578,36 @@ export default function DashboardPage() {
                }).join(' ');
 
                return (
-                 <polyline key={`line-${idx}`} fill="none" stroke={selectedGraph.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={pts} className="drop-shadow-lg" />
+                 <polyline key={`line-${idx}`} fill="none" stroke={selectedGraph.color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" points={pts} className="drop-shadow-lg" />
                );
             })}
           </svg>
+
+          {visibleData.length === 0 && (
+             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="text-gray-500 text-xs font-bold mb-2">Немає даних</span>
+                {panOffsetMs > 0 ? (
+                   <span className="text-[9px] text-gray-600">Свайпайте далі або натисніть «ДО ЗАРАЗ»</span>
+                ) : (
+                   <span className="text-[9px] text-gray-600">Очікування підключення або змініть масштаб</span>
+                )}
+             </div>
+          )}
         </div>
         
         <div className="flex justify-between w-full pl-2 pr-1 text-[9px] text-gray-500 font-mono mt-2">
-            <span>{new Date(viewStartTime).toLocaleTimeString('uk-UA', {hour: '2-digit', minute:'2-digit'})}</span>
-            <span>{new Date(viewStartTime + WINDOW_MS/2).toLocaleTimeString('uk-UA', {hour: '2-digit', minute:'2-digit'})}</span>
-            <span>{new Date(viewEndTime).toLocaleTimeString('uk-UA', {hour: '2-digit', minute:'2-digit'})}</span>
+            <span>{formatTimeAxis(viewStartTime)}</span>
+            <span>{formatTimeAxis(viewStartTime + WINDOW_MS/2)}</span>
+            <span>{formatTimeAxis(viewEndTime)}</span>
         </div>
-        <div className="text-center mt-2 text-[9px] text-gray-600">Свайпайте вліво/вправо для історії</div>
+
+        {visibleData.length === 0 && dataMap.size > 0 && (
+           <div className="mt-4 flex justify-center">
+              <button onClick={jumpToLastActivity} className="text-gray-300 text-xs bg-gray-800 px-4 py-2 rounded-lg border border-gray-700 shadow-md">
+                 Перейти до останньої поїздки
+              </button>
+           </div>
+        )}
       </div>
     );
   };
@@ -539,6 +688,17 @@ export default function DashboardPage() {
 
   if (telemetry.isLoading) return <div className="min-h-screen bg-[#050505] flex justify-center items-center"><div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div></div>;
 
+  const filteredPerfRecords = perfRecords.filter(r => {
+      const runData = r.data[0]?.telemetry || [];
+      return getMilestoneTime(runData, perfFilter) !== null;
+  });
+
+  let bestPerfRecord = null;
+  if (filteredPerfRecords.length > 0) {
+      bestPerfRecord = [...filteredPerfRecords].sort((a,b) => getMilestoneTime(a.data[0].telemetry, perfFilter) - getMilestoneTime(b.data[0].telemetry, perfFilter))[0];
+  }
+  const recentPerfRecords = filteredPerfRecords.slice(0, 3);
+
   return (
     <div className="p-5 flex flex-col gap-5 animate-in fade-in duration-500 min-h-screen bg-[#050505] text-white overflow-x-hidden pb-28">
       
@@ -574,6 +734,40 @@ export default function DashboardPage() {
         </button>
       )}
 
+      {/* СИСТЕМА ПРОФІЛІВ (ВКЛАДКИ) */}
+      <div className="flex gap-2 overflow-x-auto pb-1 mt-2 scrollbar-hide">
+         {layouts.map(l => (
+            <div key={l.id} className="relative flex items-center">
+               <button
+                 onClick={() => {
+                    if (isEditMode) {
+                       if (activeTabId === l.id) renameTab(l.id, l.name);
+                       return;
+                    }
+                    switchTab(l.id);
+                 }}
+                 className={`flex items-center gap-1 px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${activeTabId === l.id ? 'bg-blue-600 text-white shadow-md' : 'bg-[#111318] border border-gray-800 text-gray-500 hover:text-white'} ${isEditMode && activeTabId !== l.id ? 'opacity-50 cursor-not-allowed' : ''}`}
+               >
+                  {l.name}
+                  {isEditMode && activeTabId === l.id && <span className="ml-1 opacity-70">✏️</span>}
+               </button>
+               {/* Кнопка видалення кастомної вкладки під час режиму редагування */}
+               {isEditMode && l.id !== 'default' && activeTabId === l.id && (
+                  <button onClick={(e) => { e.stopPropagation(); deleteTab(l.id); }} className="absolute -top-1 -right-1 bg-red-600 text-white w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-bold shadow-md hover:bg-red-500 z-20">
+                     ×
+                  </button>
+               )}
+            </div>
+         ))}
+         {layouts.length < 4 && !isEditMode && (
+            <button
+               onClick={addTab}
+               className="px-3 py-1.5 rounded-full text-xs font-bold bg-[#111318] border border-dashed border-gray-700 text-gray-400 hover:text-white transition-colors flex-shrink-0"
+            >
+               + ДОДАТИ
+            </button>
+         )}
+      </div>
 
       <div className="grid grid-cols-3 gap-3">
         {layout.map((item, index) => renderMetricCard(item, index))}
@@ -585,10 +779,10 @@ export default function DashboardPage() {
           <span className="text-[9px] bg-gray-800 px-2 py-1 rounded text-gray-500 uppercase tracking-widest">БД Графіки</span>
         </h3>
         <div className="grid grid-cols-2 gap-3">
-          <MiniGraph data={telemetry.history.speed} color="#60a5fa" label="ШВИДКІСТЬ" unit="км/год" onClick={() => setSelectedGraph({ id: 'SPEED', label: 'Швидкість', color: '#60a5fa', unit: 'км/год' })} />
-          <MiniGraph data={telemetry.history.fuel} color="#f472b6" label="ВИТРАТА" unit="%" onClick={() => setSelectedGraph({ id: 'FUEL_LEVEL', label: 'Витрата палива', color: '#f472b6', unit: '%' })} />
-          <MiniGraph data={telemetry.history.rpm} color="#a78bfa" label="ОБЕРТИ" unit="rpm" onClick={() => setSelectedGraph({ id: 'RPM', label: 'Оберти', color: '#a78bfa', unit: 'rpm' })} />
-          <MiniGraph data={telemetry.history.temp} color="#34d399" label="ТЕМПЕРАТУРА" unit="°C" onClick={() => setSelectedGraph({ id: 'COOLANT_TEMP', label: 'Температура', color: '#34d399', unit: '°C' })} />
+          <MiniGraph data={get24hData(telemetry.history.speed)} color="#60a5fa" label="ШВИДКІСТЬ" unit="км/год" onClick={() => setSelectedGraph({ id: 'SPEED', label: 'Швидкість', color: '#60a5fa', unit: 'км/год' })} />
+          <MiniGraph data={get24hData(telemetry.history.fuel)} color="#f472b6" label="ВИТРАТА" unit="л/год" onClick={() => setSelectedGraph({ id: 'FUEL_RATE', label: 'Витрата палива', color: '#f472b6', unit: 'л/год' })} />
+          <MiniGraph data={get24hData(telemetry.history.rpm)} color="#a78bfa" label="ОБЕРТИ" unit="rpm" onClick={() => setSelectedGraph({ id: 'RPM', label: 'Оберти', color: '#a78bfa', unit: 'rpm' })} />
+          <MiniGraph data={get24hData(telemetry.history.temp)} color="#34d399" label="ТЕМПЕРАТУРА" unit="°C" onClick={() => setSelectedGraph({ id: 'COOLANT_TEMP', label: 'Температура', color: '#34d399', unit: '°C' })} />
         </div>
       </div>
 
@@ -644,10 +838,22 @@ export default function DashboardPage() {
         РОЗШИРЕНИЙ ЗВІТ ЕБУ (ІСТОРІЯ)
       </button>
 
-      {/* Віджет Динаміки 0-100 */}
+      {/* Віджет Динаміки з фільтрами */}
       <div className="bg-[#111318] p-4 rounded-2xl border border-gray-800 shadow-lg">
         <div className="flex justify-between items-center mb-4">
-           <h3 className="text-xs font-bold tracking-wide text-gray-300 uppercase">Динаміка 0-100 км/год</h3>
+           <div className="flex items-center gap-2">
+               <h3 className="text-xs font-bold tracking-wide text-gray-300 uppercase">Динаміка</h3>
+               <select 
+                  className="bg-gray-900 border border-gray-700 text-[10px] text-white rounded px-2 py-1 outline-none focus:border-blue-500"
+                  value={perfFilter}
+                  onChange={(e) => setPerfFilter(Number(e.target.value))}
+               >
+                  <option value={50}>0-50</option>
+                  <option value={100}>0-100</option>
+                  <option value={150}>0-150</option>
+                  <option value={200}>0-200</option>
+               </select>
+           </div>
            <span className="text-[9px] bg-red-900/30 text-red-400 px-2 py-1 rounded font-bold uppercase tracking-widest">PERFORMANCE</span>
         </div>
         
@@ -664,12 +870,12 @@ export default function DashboardPage() {
            {perfState === 'ready' && (
               <div className="flex flex-col items-center">
                  <button onClick={togglePerfTimer} className="bg-orange-600 text-white font-bold py-2 px-8 rounded-full text-xs animate-pulse mb-1">ОЧІКУВАННЯ СТАРТУ...</button>
-                 <span className="text-[9px] text-gray-500">Натисніть на газ для початку</span>
+                 <span className="text-[9px] text-gray-500">Натисніть на газ для початку (очікування &gt; 0)</span>
               </div>
            )}
            {perfState === 'running' && (
               <button onClick={togglePerfTimer} className="bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-8 rounded-full text-xs shadow-[0_0_10px_rgba(220,38,38,0.5)]">
-                СКАСУВАТИ ({Math.round(telemetry.speed || 0)} км/год)
+                ЗУПИНИТИ ЗАМІР ({Math.round(telemetry.speed || 0)} км/год)
               </button>
            )}
            {perfState === 'finished' && (
@@ -679,27 +885,28 @@ export default function DashboardPage() {
            )}
         </div>
 
-        {perfRecords.length > 0 && (
+        {filteredPerfRecords.length > 0 ? (
           <div>
-            <div className="text-[10px] text-gray-500 font-bold mb-2 uppercase">Останні заміри:</div>
+            <div className="text-[10px] text-gray-500 font-bold mb-2 uppercase">Рекорди 0-{perfFilter} км/год:</div>
             <div className="flex gap-2 overflow-x-auto pb-2">
-               {(() => {
-                  const best = [...perfRecords].sort((a,b) => a.data[0].timeMs - b.data[0].timeMs)[0];
-                  return (
-                    <div onClick={() => setSelectedPerfRecord(best)} className="flex-shrink-0 bg-green-900/20 border border-green-800/50 p-2 rounded-lg text-center w-24 cursor-pointer hover:bg-green-900/40 transition-colors">
-                      <div className="text-[9px] text-green-400 mb-1">РЕКОРД</div>
-                      <div className="font-mono font-bold text-sm text-green-300">{formatPerfTime(best.data[0].timeMs)}</div>
-                    </div>
-                  )
-               })()}
+               {bestPerfRecord && (
+                  <div onClick={() => setSelectedPerfRecord(bestPerfRecord)} className="flex-shrink-0 bg-green-900/20 border border-green-800/50 p-2 rounded-lg text-center w-24 cursor-pointer hover:bg-green-900/40 transition-colors">
+                    <div className="text-[9px] text-green-400 mb-1">РЕКОРД</div>
+                    <div className="font-mono font-bold text-sm text-green-300">{formatPerfTime(getMilestoneTime(bestPerfRecord.data[0].telemetry, perfFilter))}</div>
+                  </div>
+               )}
                
-               {perfRecords.map((r, i) => (
+               {recentPerfRecords.map((r, i) => (
                  <div key={i} onClick={() => setSelectedPerfRecord(r)} className="flex-shrink-0 bg-gray-900/50 border border-gray-800 p-2 rounded-lg text-center w-24 cursor-pointer hover:bg-gray-800 transition-colors">
                    <div className="text-[9px] text-gray-500 mb-1">{new Date(r.timestamp).toLocaleTimeString('uk-UA', {hour:'2-digit', minute:'2-digit'})}</div>
-                   <div className="font-mono font-bold text-sm text-gray-300">{formatPerfTime(r.data[0].timeMs)}</div>
+                   <div className="font-mono font-bold text-sm text-gray-300">{formatPerfTime(getMilestoneTime(r.data[0].telemetry, perfFilter))}</div>
                  </div>
                ))}
             </div>
+          </div>
+        ) : (
+          <div className="text-center text-xs text-gray-600 py-2">
+             Немає замірів для швидкості {perfFilter} км/год
           </div>
         )}
       </div>
@@ -831,7 +1038,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* НОВЕ: ДЕТАЛІ ЗАМІРУ 0-100 МОДАЛКА */}
+      {/* ДЕТАЛІ ЗАМІРУ 0-100 (МАРКЕРИ ШВИДКОСТІ В СПИСКУ) */}
       {selectedPerfRecord && (
         <div className="fixed inset-0 z-[130] bg-black/80 backdrop-blur-md flex items-end md:items-center justify-center animate-in fade-in p-4">
            <div className="bg-[#0b0c10] w-full max-w-2xl rounded-3xl border border-gray-800 shadow-2xl h-[75vh] flex flex-col animate-in zoom-in-95 overflow-hidden">
@@ -839,12 +1046,12 @@ export default function DashboardPage() {
                  <div>
                     <h2 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2">
                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-                       Деталі заміру
+                       Замір динаміки
                     </h2>
                     <div className="text-[10px] text-gray-500 mt-1">{new Date(selectedPerfRecord.timestamp).toLocaleString('uk-UA')}</div>
                  </div>
                  <div className="flex items-center gap-4">
-                    <span className="text-2xl font-black text-white">{formatPerfTime(selectedPerfRecord.data[0].timeMs)}</span>
+                    <span className="text-2xl font-black text-white">{formatPerfTime(getMilestoneTime(selectedPerfRecord.data[0].telemetry, perfFilter) || selectedPerfRecord.data[0].timeMs)}</span>
                     <button onClick={() => setSelectedPerfRecord(null)} className="text-gray-400 bg-gray-900 p-2 rounded-full hover:bg-gray-800 transition-colors">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                     </button>
@@ -853,12 +1060,14 @@ export default function DashboardPage() {
               <div className="flex-1 p-5 overflow-y-auto space-y-6">
                   {(() => {
                       const runData = selectedPerfRecord.data[0].telemetry || [];
-                      if (runData.length === 0) return <div className="text-gray-500 text-sm">Немає збережених даних телеметрії для цього заміру.</div>;
+                      if (runData.length === 0) return <div className="text-gray-500 text-sm">Немає збережених даних телеметрії.</div>;
                       
                       const maxRpm = Math.max(...runData.map(d => d.rpm));
                       const maxLoad = Math.max(...runData.map(d => d.load));
                       const maxThrottle = Math.max(...runData.map(d => d.throttle));
                       const startTemp = runData[0].coolant;
+
+                      let m50 = false, m100 = false, m150 = false, m200 = false;
 
                       return (
                         <>
@@ -891,15 +1100,29 @@ export default function DashboardPage() {
                                    <div className="w-16">Навант.</div>
                                    <div className="flex-1">Дросель</div>
                                 </div>
-                                {runData.map((pt, i) => (
-                                  <div key={i} className="flex text-xs font-mono px-2 py-1.5 bg-[#111318] rounded-lg border border-gray-800/50 hover:border-gray-700">
-                                     <div className="w-12 text-gray-500">{(pt.t/1000).toFixed(1)}s</div>
-                                     <div className="w-16 text-white font-bold">{pt.speed}</div>
-                                     <div className="w-16 text-purple-400">{pt.rpm}</div>
-                                     <div className="w-16 text-orange-400">{pt.load}%</div>
-                                     <div className="flex-1 text-blue-400">{pt.throttle}%</div>
-                                  </div>
-                                ))}
+                                {runData.map((pt, i) => {
+                                   const show50 = !m50 && pt.speed >= 50 && (m50 = true);
+                                   const show100 = !m100 && pt.speed >= 100 && (m100 = true);
+                                   const show150 = !m150 && pt.speed >= 150 && (m150 = true);
+                                   const show200 = !m200 && pt.speed >= 200 && (m200 = true);
+
+                                   return (
+                                     <React.Fragment key={i}>
+                                       {show50 && <div className="text-center text-[10px] text-green-400 font-bold bg-green-900/20 py-1 my-1 rounded border border-green-800/30">--- 50 км/год ({formatPerfTime(pt.t)}) ---</div>}
+                                       {show100 && <div className="text-center text-[10px] text-blue-400 font-bold bg-blue-900/20 py-1 my-1 rounded border border-blue-800/30">--- 100 км/год ({formatPerfTime(pt.t)}) ---</div>}
+                                       {show150 && <div className="text-center text-[10px] text-purple-400 font-bold bg-purple-900/20 py-1 my-1 rounded border border-purple-800/30">--- 150 км/год ({formatPerfTime(pt.t)}) ---</div>}
+                                       {show200 && <div className="text-center text-[10px] text-red-400 font-bold bg-red-900/20 py-1 my-1 rounded border border-red-800/30">--- 200 км/год ({formatPerfTime(pt.t)}) ---</div>}
+                                       
+                                       <div className="flex text-xs font-mono px-2 py-1.5 bg-[#111318] rounded-lg border border-gray-800/50 hover:border-gray-700">
+                                          <div className="w-12 text-gray-500">{(pt.t/1000).toFixed(1)}s</div>
+                                          <div className="w-16 text-white font-bold">{pt.speed}</div>
+                                          <div className="w-16 text-purple-400">{pt.rpm}</div>
+                                          <div className="w-16 text-orange-400">{pt.load}%</div>
+                                          <div className="flex-1 text-blue-400">{pt.throttle}%</div>
+                                       </div>
+                                     </React.Fragment>
+                                   );
+                                })}
                              </div>
                           </div>
                         </>

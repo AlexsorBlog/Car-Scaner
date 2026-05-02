@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useTelemetry } from '../hooks/useTelemetry';
+import { useTelemetry } from '../context/TelemetryContext.jsx';
 
 export default function ProfilePage() {
   const { user, isLoading, refreshProfile } = useTelemetry();

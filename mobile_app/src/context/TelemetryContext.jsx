@@ -47,7 +47,7 @@ import dtcDictionary                    from '../obd/codes.json';
  * Anything not listed falls into "slow".
  */
 const FAST_PIDS   = new Set(['SPEED', 'RPM', 'COOLANT_TEMP', 'THROTTLE_POS']);
-const MEDIUM_PIDS = new Set(['ENGINE_LOAD', 'INTAKE_TEMP', 'FUEL_LEVEL', 'MAF',
+const MEDIUM_PIDS = new Set(['ENGINE_LOAD', 'INTAKE_TEMP', 'FUEL_RATE', 'MAF',
                               'BAROMETRIC_PRESSURE', 'CONTROL_MODULE_VOLTAGE']);
 
 // History window kept in memory
@@ -136,7 +136,7 @@ export function TelemetryProvider({ children }) {
         if (row.speed != null) { histSpeed.push({ t, v: row.speed }); latestSpeed = row.speed; initialMetrics.SPEED = { value: row.speed, unit: 'км/год' }; }
         if (row.rpm   != null) { histRpm  .push({ t, v: row.rpm   }); latestRpm   = row.rpm;   initialMetrics.RPM   = { value: row.rpm,   unit: 'об/хв' }; }
         if (row.temp  != null) { histTemp .push({ t, v: row.temp  }); latestTemp  = row.temp;  initialMetrics.COOLANT_TEMP = { value: row.temp, unit: '°C' }; }
-        if (row.fuel  != null) { histFuel .push({ t, v: row.fuel  }); latestFuel  = row.fuel;  initialMetrics.FUEL_LEVEL   = { value: row.fuel, unit: '%'  }; }
+        if (row.fuel != null) { histFuel.push({ t, v: row.fuel }); latestFuel = row.fuel; initialMetrics.FUEL_RATE = { value: row.fuel, unit: 'л/год' }; }
       }
 
       setData(prev => ({
@@ -204,7 +204,7 @@ export function TelemetryProvider({ children }) {
             if (cmdId === 'SPEED')        cycleTopLevel.speed = res.value;
             if (cmdId === 'RPM')          cycleTopLevel.rpm   = res.value;
             if (cmdId === 'COOLANT_TEMP') cycleTopLevel.temp  = res.value;
-            if (cmdId === 'FUEL_LEVEL')   cycleTopLevel.fuel  = res.value;
+            if (cmdId === 'FUEL_RATE') cycleTopLevel.fuel = res.value;
           }
         } catch (err) {
           console.warn(`[Telemetry] query error ${cmdId}:`, err.message);
@@ -238,7 +238,7 @@ export function TelemetryProvider({ children }) {
         });
       }
 
-      await new Promise(r => setTimeout(r, 150));
+      await new Promise(r => setTimeout(r, 40));
     }
   }, []);
 
@@ -293,29 +293,83 @@ export function TelemetryProvider({ children }) {
     setData(prev => ({ ...prev, isCheckingErrors: true }));
     isPaused.current = true;
 
-    // Wait for any in-flight command to finish
     await new Promise(r => setTimeout(r, 800));
 
     try {
-      const result = await obd.query(mode3.GET_DTC);
-      const now    = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+      const now = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+      let finalErrors = [];
 
-      const foundErrors = (result?.value && Array.isArray(result.value) && result.value.length > 0)
-        ? result.value.map(code => ({
-            code,
-            title:    dtcDictionary[code] ?? 'Специфічна помилка виробника',
-            desc:     'Потрібна додаткова діагностика системи.',
-            severity: _classifyDtcSeverity(code),
-            cost:     _estimateDtcCost(code),
-          }))
-        : [];
+      // --- ATTEMPT 1: Standard Generic Mode 03 ---
+      const resultMode3 = await obd.query(mode3.GET_DTC);
+      const mode3Codes = (resultMode3?.value && Array.isArray(resultMode3.value)) ? resultMode3.value : [];
+
+      let needsUdsFallback = false;
+
+      // Check if Mode 03 gave us garbage (codes not in our dictionary)
+      for (const code of mode3Codes) {
+         // Check if it exists in your 2000+ item JSON
+         if (dtcDictionary[code]) {
+             finalErrors.push({
+                code: code,
+                title: dtcDictionary[code],
+                desc: 'Стандартний код OBD-II.',
+                severity: _classifyDtcSeverity(code),
+                cost: _estimateDtcCost(code),
+             });
+         } else {
+             // If we found a code like "C0300" that isn't in the dictionary, flag it!
+             needsUdsFallback = true;
+         }
+      }
+
+      // --- ATTEMPT 2: UDS Fallback (If Mode 03 failed or gave garbage) ---
+      if (needsUdsFallback || mode3Codes.length === 0) {
+          console.log("[OBD] Mode 03 returned unknown/no codes. Attempting UDS Service 19 fallback...");
+          
+          // Get the new command we created in Step 1
+          const udsCmd = commands['GET_DTC_UDS']; 
+          if (udsCmd) {
+              const resultUds = await obd.query(udsCmd);
+              const udsCodes = (resultUds?.value && Array.isArray(resultUds.value)) ? resultUds.value : [];
+              
+              if (udsCodes.length > 0) {
+                  // Clear the bad Mode 03 results
+                  finalErrors = []; 
+                  
+                  for (const udsObj of udsCodes) {
+                      const baseCode = udsObj.base; // "P0597"
+                      const fullCode = udsObj.full; // "P0597-00"
+                      
+                      finalErrors.push({
+                          code: fullCode, // Display the full OEM code
+                          title: dtcDictionary[baseCode] || 'Специфічна помилка виробника (UDS)',
+                          desc: 'Отримано через розширений протокол виробника.',
+                          severity: _classifyDtcSeverity(baseCode),
+                          cost: _estimateDtcCost(baseCode),
+                      });
+                  }
+              }
+          }
+      }
+
+      // --- ATTEMPT 3: Last Resort (Just show the raw garbage if everything failed) ---
+      if (finalErrors.length === 0 && mode3Codes.length > 0) {
+          finalErrors = mode3Codes.map(code => ({
+            code: code,
+            title: 'Невідомий код (Немає в базі)',
+            desc: 'Система виявила код, але його немає у стандартному списку.',
+            severity: 'Невідомо',
+            cost: 'Невідомо',
+          }));
+      }
 
       setData(prev => ({
         ...prev,
-        errors:           foundErrors,
+        errors:           finalErrors,
         hasScannedErrors: true,
         lastScanTime:     now,
       }));
+
     } catch (err) {
       console.error('[Telemetry] scanErrors:', err);
       setData(prev => ({ ...prev, errors: [], hasScannedErrors: true }));

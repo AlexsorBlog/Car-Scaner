@@ -1,5 +1,5 @@
 import React from 'react';
-import { useTelemetry } from '../hooks/useTelemetry';
+import { useTelemetry } from '../context/TelemetryContext.jsx';
 
 export default function ScanPage() {
   // ДОДАНО = [] щоб уникнути помилки undefined

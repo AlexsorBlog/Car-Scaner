@@ -192,3 +192,54 @@ export const elm_voltage   = (hex) => hex;
 export const abs_evap_pressure  = (hex) => parseFloat((hexToInt(hex) / 200.0).toFixed(2));
 export const evap_pressure_alt  = (hex) => hexToInt(hex) - 32767;
 export const evap_pressure      = (hex) => hex; // complex signed value — stub
+/**
+ * UDS Service 19 DTC Decoder
+ * UDS Positive response starts with 59 02.
+ * After that, it contains a Status Availability Mask (1 byte), 
+ * then the DTCs are 3 bytes + 1 Status byte each (4 bytes total per DTC).
+ * Example: 59 02 08 [05 97 00] [2F]
+ */
+export const dtc_uds = (hex) => {
+    if (!hex || hex.length < 6) return [];
+  
+    const codes = [];
+    const LETTERS = ['P', 'C', 'B', 'U'];
+  
+    // Find where the actual DTC data starts.
+    // Response is "59 02 XX" where XX is the mask echo.
+    // So the DTC data starts after the first 6 hex characters.
+    const prefixIdx = hex.indexOf('5902');
+    if (prefixIdx === -1) return [];
+    
+    // Skip '5902' + the mask byte (total 6 characters)
+    const data = hex.substring(prefixIdx + 6);
+  
+    // Read chunks of 8 characters (4 bytes: 3 for DTC, 1 for Status)
+    for (let i = 0; i + 7 < data.length; i += 8) {
+      const chunk = data.substring(i, i + 8);
+      if (chunk.startsWith('000000')) continue; // Padding
+  
+      const byteA = parseInt(chunk.substring(0, 2), 16);
+      const byteB = chunk.substring(2, 4); // Keep as string for base code
+      const byteC = chunk.substring(4, 6); // Failure Type Byte (FTB)
+      // Status byte is chunk.substring(6, 8), we ignore it for now
+  
+      // Decode System Letter (Top 2 bits of A)
+      const letter = LETTERS[(byteA >> 6) & 0x03];
+      // First digit (Next 2 bits)
+      const d1 = (byteA >> 4) & 0x03;
+      // Last digit of A (Bottom 4 bits)
+      const d2 = byteA & 0x0F;
+  
+      // Construct Base Code (e.g., P0597)
+      const baseCode = `${letter}${d1}${d2.toString(16).toUpperCase()}${byteB}`;
+      
+      // We push an object so we can know if it had a sub-type
+      codes.push({
+          base: baseCode,              // "P0597" - Use this to look up in your JSON
+          full: `${baseCode}-${byteC}` // "P0597-00" - Show this to the user for context
+      });
+    }
+  
+    return codes;
+  };
