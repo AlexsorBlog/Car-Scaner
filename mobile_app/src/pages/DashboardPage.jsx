@@ -131,6 +131,10 @@ export default function DashboardPage() {
   const [perfRecords, setPerfRecords] = useState([]);
   const [perfFilter, setPerfFilter] = useState(100); 
   const [selectedPerfRecord, setSelectedPerfRecord] = useState(null); 
+
+  // Trip Distance State
+  const [tripDistance, setTripDistance] = useState(0); // Дистанція в кілометрах
+  const lastSpeedTime = useRef(Date.now());
   
   const perfInterval = useRef(null);
   const perfStartTime = useRef(null);
@@ -187,6 +191,23 @@ export default function DashboardPage() {
     }
   }, [telemetry.speed, perfState, telemetry]);
 
+  useEffect(() => {
+    const now = Date.now();
+    const timeDiffMs = now - lastSpeedTime.current;
+    lastSpeedTime.current = now;
+
+    // Рахуємо дистанцію тільки якщо ми підключені і авто рухається
+    if (telemetry.isConnected && telemetry.speed > 0) {
+      // Переводимо мілісекунди в години (1 год = 3 600 000 мс)
+      const hoursPassed = timeDiffMs / 3600000;
+      
+      // Дистанція (км) = Швидкість (км/год) * Час (год)
+      const distanceDelta = telemetry.speed * hoursPassed;
+      
+      setTripDistance(prev => prev + distanceDelta);
+    }
+  }, [telemetry.speed, telemetry.isConnected]);
+
   const togglePerfTimer = () => {
     if (perfState === 'idle' || perfState === 'finished') {
       if ((telemetry.speed || 0) > 0) {
@@ -218,6 +239,29 @@ export default function DashboardPage() {
       if (!telemetryArray || telemetryArray.length === 0) return null;
       const point = telemetryArray.find(d => d.speed >= targetSpeed);
       return point ? point.t : null;
+  };
+
+  const getMilestoneDistance = (telemetryArray, targetSpeed) => {
+      if (!telemetryArray || telemetryArray.length < 2) return 0;
+      let distanceKm = 0;
+      
+      for (let i = 1; i < telemetryArray.length; i++) {
+          const prev = telemetryArray[i - 1];
+          const curr = telemetryArray[i];
+
+          // Різниця в часі у годинах
+          const dtHours = (curr.t - prev.t) / 3600000;
+          // Середня швидкість між двома точками
+          const avgSpeed = (curr.speed + prev.speed) / 2; 
+          
+          distanceKm += (avgSpeed * dtHours);
+
+          // Зупиняємо підрахунок, як тільки досягли потрібної швидкості
+          if (curr.speed >= targetSpeed) {
+              break; 
+          }
+      }
+      return distanceKm * 1000; // Повертаємо метри
   };
 
   const formatPerfTime = (ms) => ms === null ? '--' : (ms / 1000).toFixed(2) + 's';
@@ -666,6 +710,15 @@ export default function DashboardPage() {
                <span className="text-6xl font-black tracking-tighter tabular-nums text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-400 relative z-10 pt-10">{metricData.value}</span>
             )}
             <span className="text-[10px] text-gray-500 font-bold tracking-widest mt-1 relative z-10">КМ/ГОД</span>
+            
+            {/* НОВИЙ БЛОК: Пройдена дистанція */}
+            {!isWaitingData && (
+              <div className="mt-2 flex flex-col items-center relative z-10 bg-[#050505]/50 px-4 py-1 rounded-full border border-gray-800/80 shadow-inner">
+                <span className="text-[8px] text-gray-500 uppercase tracking-widest">Проїхано (Trip)</span>
+                {/* toFixed(3) показуватиме точність до метрів (напр. 1.254 км) */}
+                <span className="text-xs font-bold text-blue-400 tabular-nums">{tripDistance.toFixed(3)} км</span>
+              </div>
+            )}
           </div>
         ) : (
           <>
@@ -858,9 +911,17 @@ export default function DashboardPage() {
         </div>
         
         <div className="flex flex-col items-center justify-center p-4 bg-gray-950/50 rounded-xl border border-gray-800/50 mb-4">
-           <span className="text-4xl font-black tabular-nums font-mono text-white mb-2">
-             {formatPerfTime(perfTime)}
-           </span>
+           <div className="flex items-baseline gap-2 mb-2">
+             <span className="text-4xl font-black tabular-nums font-mono text-white">
+               {formatPerfTime(perfTime)}
+             </span>
+             {/* НОВИЙ БЛОК: Вивід метрів під час або після заміру */}
+             {(perfState === 'running' || perfState === 'finished') && (
+               <span className="text-sm font-bold text-gray-400 tabular-nums">
+                 ({Math.round(getMilestoneDistance(currentRunData.current, perfFilter))} м)
+               </span>
+             )}
+           </div>
            
            {perfState === 'idle' && (
               <button onClick={togglePerfTimer} disabled={!telemetry.isConnected} className="bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-white font-bold py-2 px-8 rounded-full text-xs transition-colors shadow-[0_0_10px_rgba(37,99,235,0.3)]">
@@ -896,12 +957,16 @@ export default function DashboardPage() {
                   </div>
                )}
                
-               {recentPerfRecords.map((r, i) => (
-                 <div key={i} onClick={() => setSelectedPerfRecord(r)} className="flex-shrink-0 bg-gray-900/50 border border-gray-800 p-2 rounded-lg text-center w-24 cursor-pointer hover:bg-gray-800 transition-colors">
-                   <div className="text-[9px] text-gray-500 mb-1">{new Date(r.timestamp).toLocaleTimeString('uk-UA', {hour:'2-digit', minute:'2-digit'})}</div>
-                   <div className="font-mono font-bold text-sm text-gray-300">{formatPerfTime(getMilestoneTime(r.data[0].telemetry, perfFilter))}</div>
-                 </div>
-               ))}
+               {recentPerfRecords.map((r, i) => {
+                  const runMeters = Math.round(getMilestoneDistance(r.data[0].telemetry, perfFilter));
+                  return (
+                   <div key={i} onClick={() => setSelectedPerfRecord(r)} className="flex-shrink-0 bg-gray-900/50 border border-gray-800 p-2 rounded-lg text-center w-24 cursor-pointer hover:bg-gray-800 transition-colors">
+                     <div className="text-[9px] text-gray-500 mb-1">{new Date(r.timestamp).toLocaleTimeString('uk-UA', {hour:'2-digit', minute:'2-digit'})}</div>
+                     <div className="font-mono font-bold text-sm text-gray-300">{formatPerfTime(getMilestoneTime(r.data[0].telemetry, perfFilter))}</div>
+                     <div className="text-[9px] text-blue-400/80 font-bold mt-0.5">{runMeters} м</div>
+                   </div>
+                  )
+                })}
             </div>
           </div>
         ) : (
@@ -1051,11 +1116,19 @@ export default function DashboardPage() {
                     <div className="text-[10px] text-gray-500 mt-1">{new Date(selectedPerfRecord.timestamp).toLocaleString('uk-UA')}</div>
                  </div>
                  <div className="flex items-center gap-4">
-                    <span className="text-2xl font-black text-white">{formatPerfTime(getMilestoneTime(selectedPerfRecord.data[0].telemetry, perfFilter) || selectedPerfRecord.data[0].timeMs)}</span>
-                    <button onClick={() => setSelectedPerfRecord(null)} className="text-gray-400 bg-gray-900 p-2 rounded-full hover:bg-gray-800 transition-colors">
+                    {/* НОВИЙ БЛОК: Вивід часу ТА дистанції у модалці */}
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-black text-white">
+                        {formatPerfTime(getMilestoneTime(selectedPerfRecord.data[0].telemetry, perfFilter) || selectedPerfRecord.data[0].timeMs)}
+                      </span>
+                      <span className="text-sm font-bold text-gray-400 tabular-nums">
+                        ({Math.round(getMilestoneDistance(selectedPerfRecord.data[0].telemetry, perfFilter))} м)
+                      </span>
+                    </div>
+                    <button onClick={() => setSelectedPerfRecord(null)} className="text-gray-400 bg-gray-900 p-2 rounded-full hover:bg-gray-800 transition-colors flex-shrink-0">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                     </button>
-                 </div>
+                  </div>
               </div>
               <div className="flex-1 p-5 overflow-y-auto space-y-6">
                   {(() => {

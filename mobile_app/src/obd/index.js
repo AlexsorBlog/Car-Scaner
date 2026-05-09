@@ -194,9 +194,137 @@ class OBDManager {
     }
   }
 
+  // ── Smart DTC Fallback Logic ──────────────────────────────────────────────
+
+  /**
+   * Розумне читання помилок з перевіркою валідності через словник.
+   * Використовує 5 різних варіантів запитів до ЕБУ.
+   * * @param {Object} dtcDictionary - Ваш JSON об'єкт з 2000+ кодами (наприклад, { "P0104": "...", "P0597": "..." })
+   * @returns {Promise<{codes: Array, variant: string}>}
+   */
+  // ── Smart DTC Fallback Logic (10 Variants) ──────────────────────────────
+
+  async smartReadDTC(dtcDictionary = {}) {
+    let result;
+
+    // --- БЛОК 1: СУЧАСНІ UDS МЕТОДИ (ISO 14229) ---
+    // На сучасних авто найкраще починати з UDS, бо він найточніший.
+
+    // Варіант 1: UDS 190209 (Confirmed + Test Failed - Найчастіший успіх на VAG/BMW)
+    result = await this._executeRawDTC('190209', decoders.dtc_uds);
+    if (this._verifyCodes(result, dtcDictionary, true)) return { codes: result, variant: 'UDS 190209 (Confirmed/Failed)' };
+
+    // Варіант 2: UDS 190208 (Тільки Confirmed)
+    result = await this._executeRawDTC('190208', decoders.dtc_uds);
+    if (this._verifyCodes(result, dtcDictionary, true)) return { codes: result, variant: 'UDS 190208 (Confirmed)' };
+
+    // Варіант 3: UDS 19020C (Confirmed + Test Not Complete - Якщо цикл тесту ще не завершено)
+    result = await this._executeRawDTC('19020C', decoders.dtc_uds);
+    if (this._verifyCodes(result, dtcDictionary, true)) return { codes: result, variant: 'UDS 19020C (Conf/Not Complete)' };
+
+    // Варіант 4: UDS 190201 (Тільки поточні Active/Test Failed)
+    result = await this._executeRawDTC('190201', decoders.dtc_uds);
+    if (this._verifyCodes(result, dtcDictionary, true)) return { codes: result, variant: 'UDS 190201 (Active)' };
+
+    // Варіант 5: UDS 1902FF (Всі помилки в будь-якому статусі - "Пилосос")
+    result = await this._executeRawDTC('1902FF', decoders.dtc_uds);
+    if (this._verifyCodes(result, dtcDictionary, true)) return { codes: result, variant: 'UDS 1902FF (All Statuses)' };
+
+
+    // --- БЛОК 2: СТАНДАРТНІ OBD-II МЕТОДИ (ISO 15031 / SAE J1979) ---
+    
+    // Варіант 6: Mode 03 (Збережені)
+    result = await this._executeRawDTC('03', decoders.dtc);
+    if (this._verifyCodes(result, dtcDictionary, false)) return { codes: result, variant: 'Mode 03 (Збережені)' };
+
+    // Варіант 7: Mode 07 (Очікувані/Тимчасові)
+    result = await this._executeRawDTC('07', decoders.dtc);
+    if (this._verifyCodes(result, dtcDictionary, false)) return { codes: result, variant: 'Mode 07 (Очікувані)' };
+
+    // Варіант 8: Mode 0A (Перманентні)
+    result = await this._executeRawDTC('0A', decoders.dtc);
+    if (this._verifyCodes(result, dtcDictionary, false)) return { codes: result, variant: 'Mode 0A (Перманентні)' };
+
+
+    // --- БЛОК 3: СТАРІ ПРОТОКОЛИ KWP2000 (ISO 14230) ---
+    // Для автомобілів приблизно 2000-2007 років випуску
+
+    // Варіант 9: KWP2000 Read DTCs by Status (00 00 = Всі статуси)
+    result = await this._executeRawDTC('18000000', decoders.dtc_kwp);
+    if (this._verifyCodes(result, dtcDictionary, false)) return { codes: result, variant: 'KWP2000 18000000 (Всі)' };
+
+    // Варіант 10: KWP2000 Read Saved DTCs
+    result = await this._executeRawDTC('1802FF00', decoders.dtc_kwp);
+    if (this._verifyCodes(result, dtcDictionary, false)) return { codes: result, variant: 'KWP2000 1802FF00 (Збережені)' };
+
+
+    // --- FALLBACK ---
+    // Якщо нічого не підійшло, але Mode 03 щось відповів (хоч і сміття), віддаємо його
+    const fallback = await this._executeRawDTC('03', decoders.dtc);
+    return { codes: fallback || [], variant: 'Невідомі коди (Fallback Mode 03)' };
+  }
+
+  // ── Private helpers for Smart DTC ─────────────────────────────────────────
+
+  /**
+   * Виконує сирий запит і пропускає через конкретний декодер.
+   */
+  async _executeRawDTC(cmd, decoderFunc) {
+    try {
+      const response = await this._scanner.sendCommand(cmd);
+      if (!response) return [];
+      
+      const clean = response.replace(/[\s\r\n]/g, '').toUpperCase();
+      if (clean.includes('NODATA') || clean.includes('ERROR') || clean === '') return [];
+
+      let hexData;
+      if (cmd === '03' || cmd === '07' || cmd === '0A') {
+        const prefixIdx = clean.indexOf('4' + cmd.charAt(1)); // 03 -> 43
+        if (prefixIdx === -1) return [];
+        hexData = clean.substring(prefixIdx); 
+      } else if (cmd.startsWith('19')) {
+        hexData = clean; // UDS: обробка починається з "5902" (перевіряється в декодері)
+      } else if (cmd.startsWith('18')) {
+        hexData = clean; // KWP2000: обробка починається з "58" (перевіряється в декодері dtc_kwp)
+      }
+
+      if (!hexData) return [];
+      return decoderFunc(hexData);
+    } catch (err) {
+      console.warn(`[OBD SmartDTC] Помилка запиту ${cmd}:`, err.message);
+      return [];
+    }
+  }
+
+  /**
+   * Перевіряє, чи отриманий список помилок є валідним згідно з вашим словником.
+   * Критерій: хоча б 50% кодів мають бути розпізнані словником.
+   */
+  _verifyCodes(codes, dictionary, isUds) {
+    if (!codes || codes.length === 0) return false;
+
+    let validCount = 0;
+    for (const codeItem of codes) {
+      // Для UDS ми звіряємо базову частину (напр. "P0597"), для звичайних — весь рядок
+      const codeToVerify = isUds ? codeItem.base : codeItem; 
+      
+      if (dictionary[codeToVerify]) {
+        validCount++;
+      }
+    }
+
+    // Формула валідації: якщо більше нуля і відсоток знайомих кодів >= 50%
+    return validCount > 0 && (validCount / codes.length) >= 0.5;
+  }
+
+  
+
   // ── Utilities ─────────────────────────────────────────────────────────────
 
   _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+  
 }
+
+
 
 export const obd = new OBDManager();

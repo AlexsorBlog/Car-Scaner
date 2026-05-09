@@ -293,75 +293,34 @@ export function TelemetryProvider({ children }) {
     setData(prev => ({ ...prev, isCheckingErrors: true }));
     isPaused.current = true;
 
+    // Даємо ЕБУ трохи часу "видихнути" перед запитами
     await new Promise(r => setTimeout(r, 800));
 
     try {
       const now = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
-      let finalErrors = [];
+      
+      // 🔥 Викликаємо нашу нову розумну каскадну перевірку (Waterfall)
+      // Вона сама перебере Mode 03, 07, 0A та UDS 19, поки не знайде валідні коди
+      const result = await obd.smartReadDTC(dtcDictionary);
+      
+      console.log(`[OBD] Сканування завершено. Використаний протокол: ${result.variant}`);
 
-      // --- ATTEMPT 1: Standard Generic Mode 03 ---
-      const resultMode3 = await obd.query(mode3.GET_DTC);
-      const mode3Codes = (resultMode3?.value && Array.isArray(resultMode3.value)) ? resultMode3.value : [];
+      // Форматуємо результат для UI
+      const finalErrors = result.codes.map(codeItem => {
+        // UDS повертає об'єкт { base: 'P0597', full: 'P0597-00' }
+        // Звичайні режими повертають просто рядок 'P0104'
+        const isUds = typeof codeItem === 'object';
+        const baseCode = isUds ? codeItem.base : codeItem;
+        const displayCode = isUds ? codeItem.full : codeItem;
 
-      let needsUdsFallback = false;
-
-      // Check if Mode 03 gave us garbage (codes not in our dictionary)
-      for (const code of mode3Codes) {
-         // Check if it exists in your 2000+ item JSON
-         if (dtcDictionary[code]) {
-             finalErrors.push({
-                code: code,
-                title: dtcDictionary[code],
-                desc: 'Стандартний код OBD-II.',
-                severity: _classifyDtcSeverity(code),
-                cost: _estimateDtcCost(code),
-             });
-         } else {
-             // If we found a code like "C0300" that isn't in the dictionary, flag it!
-             needsUdsFallback = true;
-         }
-      }
-
-      // --- ATTEMPT 2: UDS Fallback (If Mode 03 failed or gave garbage) ---
-      if (needsUdsFallback || mode3Codes.length === 0) {
-          console.log("[OBD] Mode 03 returned unknown/no codes. Attempting UDS Service 19 fallback...");
-          
-          // Get the new command we created in Step 1
-          const udsCmd = commands['GET_DTC_UDS']; 
-          if (udsCmd) {
-              const resultUds = await obd.query(udsCmd);
-              const udsCodes = (resultUds?.value && Array.isArray(resultUds.value)) ? resultUds.value : [];
-              
-              if (udsCodes.length > 0) {
-                  // Clear the bad Mode 03 results
-                  finalErrors = []; 
-                  
-                  for (const udsObj of udsCodes) {
-                      const baseCode = udsObj.base; // "P0597"
-                      const fullCode = udsObj.full; // "P0597-00"
-                      
-                      finalErrors.push({
-                          code: fullCode, // Display the full OEM code
-                          title: dtcDictionary[baseCode] || 'Специфічна помилка виробника (UDS)',
-                          desc: 'Отримано через розширений протокол виробника.',
-                          severity: _classifyDtcSeverity(baseCode),
-                          cost: _estimateDtcCost(baseCode),
-                      });
-                  }
-              }
-          }
-      }
-
-      // --- ATTEMPT 3: Last Resort (Just show the raw garbage if everything failed) ---
-      if (finalErrors.length === 0 && mode3Codes.length > 0) {
-          finalErrors = mode3Codes.map(code => ({
-            code: code,
-            title: 'Невідомий код (Немає в базі)',
-            desc: 'Система виявила код, але його немає у стандартному списку.',
-            severity: 'Невідомо',
-            cost: 'Невідомо',
-          }));
-      }
+        return {
+          code: displayCode,
+          title: dtcDictionary[baseCode] || 'Невідомий код (Відсутній в базі)',
+          desc: `Отримано через протокол: ${result.variant}`,
+          severity: _classifyDtcSeverity(baseCode),
+          cost: _estimateDtcCost(baseCode),
+        };
+      });
 
       setData(prev => ({
         ...prev,
@@ -378,7 +337,6 @@ export function TelemetryProvider({ children }) {
       isPaused.current = false;
     }
   }, []);
-
   // ── Public: clear DTCs (with state-based confirmation) ─────────────────────
 
   const clearErrors = useCallback(() => {

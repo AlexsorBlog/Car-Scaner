@@ -243,3 +243,42 @@ export const dtc_uds = (hex) => {
   
     return codes;
   };
+
+// ── KWP2000 Service 18 DTC Decoder ──────────────────────────────────────────
+/**
+ * Відповідь KWP2000 починається з 58.
+ * За стандартом ISO 14230-3 формат: 58 [Кількість DTC] [DTC1_High] [DTC1_Low] [Status] ...
+ * Де DTC кодується так само, як і в OBD-II (Mode 03).
+ */
+export const dtc_kwp = (hex) => {
+    if (!hex || hex.length < 4) return [];
+    const codes = [];
+    const LETTERS = ['P', 'C', 'B', 'U'];
+    
+    const prefixIdx = hex.indexOf('58');
+    if (prefixIdx === -1) return [];
+
+    // Дані після префікса 58
+    const data = hex.substring(prefixIdx + 2);
+    if (data.length < 2) return [];
+
+    // Перший байт після 58 - це зазвичай кількість помилок (ми його пропускаємо)
+    const payload = data.substring(2);
+
+    // Кожна помилка в KWP2000 займає 3 байти (6 hex символів)
+    for (let i = 0; i + 5 < payload.length; i += 6) {
+        const chunk = payload.substring(i, i + 6);
+        if (chunk.startsWith('000000')) continue;
+
+        const byteA = parseInt(chunk.substring(0, 2), 16);
+        const byteB = parseInt(chunk.substring(2, 4), 16);
+        // Третій байт (статус) ігноруємо, нам потрібен лише сам код
+
+        const letter = LETTERS[(byteA >> 6) & 0x03];
+        const d1 = (byteA >> 4) & 0x03;
+        const d234 = ((byteA & 0x0F).toString(16) + byteB.toString(16).padStart(2, '0')).toUpperCase();
+
+        codes.push(`${letter}${d1}${d234}`);
+    }
+    return codes;
+};
