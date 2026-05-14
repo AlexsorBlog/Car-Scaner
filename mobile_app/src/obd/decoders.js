@@ -132,28 +132,24 @@ export const dtc = (hex) => {
   const codes = [];
   const LETTERS = ['P', 'C', 'B', 'U'];
 
-  // Skip the leading count byte (first 2 hex chars = 1 byte)
-  const data = hex.substring(2);
+  const data = hex;
 
   for (let i = 0; i + 3 < data.length; i += 4) {
     const chunk = data.substring(i, i + 4);
-    if (chunk === '0000') continue; // padding
+    if (chunk === '0000') continue;
 
     const byteA = parseInt(chunk.substring(0, 2), 16);
     const byteB = parseInt(chunk.substring(2, 4), 16);
 
-    // System letter from top 2 bits
     const letter = LETTERS[(byteA >> 6) & 0x03];
-    // First digit: bits 5-4
     const d1 = (byteA >> 4) & 0x03;
-    // Remaining: low nibble of A + full byte B as 3 hex chars
     const d234 = ((byteA & 0x0F).toString(16) + byteB.toString(16).padStart(2, '0')).toUpperCase();
 
     codes.push(`${letter}${d1}${d234}`);
   }
 
   return codes;
-};
+}
 
 // ── String decoder ────────────────────────────────────────────────────────────
 

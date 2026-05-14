@@ -2,7 +2,6 @@
  * services/db.js — Local telemetry storage
  * Implements @capacitor-community/sqlite for native platforms (iOS/Android)
  * while preserving the IndexedDB fallback for local web development.
- * Додано версію 3 для таблиць user_profile та diagnostic_reports.
  */
 
 import { Capacitor } from '@capacitor/core';
@@ -11,7 +10,7 @@ import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite';
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const DB_NAME    = 'OBD_Telemetry';
-const DB_VERSION = 3; 
+const DB_VERSION = 4; 
 const DETAIL_DAYS = 7;   
 const MS_PER_DAY  = 86_400_000;
 
@@ -73,6 +72,16 @@ function getNativeDB() {
           data TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_reports_type ON diagnostic_reports(type);
+
+        CREATE TABLE IF NOT EXISTS obd_raw_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          timestamp INTEGER NOT NULL,
+          type TEXT NOT NULL,
+          command TEXT,
+          response TEXT,
+          isError INTEGER DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_raw_logs_ts ON obd_raw_logs(timestamp);
       `;
       await db.execute(schema);
       return db;
@@ -128,6 +137,13 @@ function getDB() {
           repStore.createIndex('timestamp', 'timestamp', { unique: false });
         }
       }
+
+      if (oldVer < 4) {
+        if (!db.objectStoreNames.contains('obd_raw_logs')) {
+          const logStore = db.createObjectStore('obd_raw_logs', { keyPath: 'id', autoIncrement: true });
+          logStore.createIndex('timestamp', 'timestamp', { unique: false });
+        }
+      }
     };
   });
 
@@ -146,6 +162,84 @@ function txPromise(tx) {
     tx.onerror    = () => reject(tx.error);
     tx.onabort    = () => reject(new Error('Transaction aborted'));
   });
+}
+
+// ── Public API (Raw Logs) ─────────────────────────────────────────────────────
+
+export async function saveRawLog(type, command, response, isError = false) {
+  const ts = Date.now();
+  const errFlag = isError ? 1 : 0;
+
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const db = await getNativeDB();
+      await db.run(
+        `INSERT INTO obd_raw_logs (timestamp, type, command, response, isError) VALUES (?, ?, ?, ?, ?)`,
+        [ts, type, command, response, errFlag]
+      );
+      
+      await db.run(`
+        DELETE FROM obd_raw_logs 
+        WHERE id NOT IN (SELECT id FROM obd_raw_logs ORDER BY timestamp DESC LIMIT 1000)
+      `);
+    } catch (err) { console.error('[DB] SQLite saveRawLog failed:', err); }
+    return;
+  }
+
+  try {
+    const db = await getDB();
+    const tx = db.transaction('obd_raw_logs', 'readwrite');
+    const store = tx.objectStore('obd_raw_logs');
+    
+    store.add({ timestamp: ts, type, command, response, isError: errFlag });
+    
+    const countReq = store.count();
+    countReq.onsuccess = () => {
+      if (countReq.result > 1000) {
+        let toDelete = countReq.result - 1000;
+        const curReq = store.openCursor();
+        curReq.onsuccess = (e) => {
+          const cursor = e.target.result;
+          if (cursor && toDelete > 0) {
+            cursor.delete();
+            toDelete--;
+            cursor.continue();
+          }
+        };
+      }
+    };
+    await txPromise(tx);
+  } catch (err) { console.error('[DB] saveRawLog failed:', err); }
+}
+
+export async function getRawLogs() {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const db = await getNativeDB();
+      const res = await db.query(`SELECT * FROM obd_raw_logs ORDER BY timestamp ASC`);
+      return res.values || [];
+    } catch (err) {
+      console.error('[DB] SQLite getRawLogs failed:', err);
+      return [];
+    }
+  }
+
+  try {
+    const db = await getDB();
+    const tx = db.transaction('obd_raw_logs', 'readonly');
+    const store = tx.objectStore('obd_raw_logs');
+    return new Promise((resolve, reject) => {
+      const req = store.getAll();
+      req.onsuccess = () => {
+        const data = req.result || [];
+        resolve(data.sort((a, b) => a.timestamp - b.timestamp));
+      };
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.error('[DB] getRawLogs failed:', err);
+    return [];
+  }
 }
 
 // ── Public API (Reports & Profile) ────────────────────────────────────────────
@@ -408,7 +502,7 @@ export async function clearAllData() {
   if (Capacitor.isNativePlatform()) {
     try {
       const db = await getNativeDB();
-      await db.execute(`DELETE FROM raw_telemetry; DELETE FROM daily_summary; DELETE FROM diagnostic_reports;`);
+      await db.execute(`DELETE FROM raw_telemetry; DELETE FROM daily_summary; DELETE FROM diagnostic_reports; DELETE FROM obd_raw_logs;`);
       console.log('[DB] All SQLite telemetry data cleared');
     } catch (err) {
       console.error('[DB] SQLite clearAllData failed:', err);
@@ -418,10 +512,11 @@ export async function clearAllData() {
   
   try {
     const db = await getDB();
-    const tx = db.transaction(['raw_telemetry', 'daily_summary', 'diagnostic_reports'], 'readwrite');
+    const tx = db.transaction(['raw_telemetry', 'daily_summary', 'diagnostic_reports', 'obd_raw_logs'], 'readwrite');
     tx.objectStore('raw_telemetry').clear();
     tx.objectStore('daily_summary').clear();
     tx.objectStore('diagnostic_reports').clear();
+    tx.objectStore('obd_raw_logs').clear();
     await txPromise(tx);
     console.log('[DB] All telemetry data cleared');
   } catch (err) {

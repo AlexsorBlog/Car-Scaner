@@ -12,17 +12,16 @@
  * - Fixed: Imported missing 'decoders' module.
  * - Fixed: Added Count Byte stripping to _executeRawDTC.
  * - Fixed: Added _formatForUI to map raw codes to dictionary strings for the UI.
+ * - NEW: Added comprehensive raw telemetry logging for detailed analysis.
  */
 
 import { obdScanner } from '../services/bleService.js';
 import { commands }   from './commands.js';
 import * as decoders  from './decoders.js';
+import { saveRawLog } from '../services/db.js'; // 📥 ВАЖЛИВО: Імпорт логера
 
-// ── Response prefix table ─────────────────────────────────────────────────────
 const AT_CMD_RE = /^AT/i;
 const MODE_NO_PID = new Set(['03', '04', '07', '08', '09']);
-
-// ── OBDManager ────────────────────────────────────────────────────────────────
 
 class OBDManager {
   constructor() {
@@ -48,6 +47,10 @@ class OBDManager {
       try {
         const res = await this._scanner.sendCommand(step.cmd);
         console.log(`[OBD init] ${step.desc}: ${res}`);
+        
+        // 💾 ЛОГ: Зберігаємо ініціалізацію для дебагу протоколів
+        saveRawLog('INIT', step.cmd, res || 'NO_RESPONSE');
+
         if (step.cmd === 'ATZ' && !res.toUpperCase().includes('ELM')) {
           console.warn('[OBD init] ATZ response unexpected — device may not be ELM327');
         }
@@ -55,6 +58,8 @@ class OBDManager {
           await this._sleep(step.delay);
         }
       } catch (err) {
+        // 💾 ЛОГ: Зберігаємо помилку ініціалізації
+        saveRawLog('INIT_ERROR', step.cmd, err.message, true);
         console.error(`[OBD init] ${step.desc} failed:`, err.message);
       }
     }
@@ -75,7 +80,11 @@ class OBDManager {
     let response;
     try {
       response = await this._scanner.sendCommand(cmdObj.command);
+      // 💾 ЛОГ: Успішний запит показників
+      saveRawLog('QUERY', cmdObj.command, response || 'NO_RESPONSE');
     } catch (err) {
+      // 💾 ЛОГ: Помилка запиту
+      saveRawLog('QUERY_ERROR', cmdObj.command, err.message, true);
       console.error(`[OBD] sendCommand failed for ${cmdObj.name}:`, err.message);
       return null;
     }
@@ -148,99 +157,148 @@ class OBDManager {
     }
   }
 
-  // ── Smart DTC Fallback Logic ──────────────────────────────────────────────
-
   async smartReadDTC(dtcDictionary = {}) {
     let result;
 
-    // --- БЛОК 1: СУЧАСНІ UDS МЕТОДИ (ISO 14229) ---
     result = await this._executeRawDTC('190209', decoders.dtc_uds);
-    if (this._verifyCodes(result, dtcDictionary, true)) return { codes: this._formatForUI(result, dtcDictionary, true), variant: 'UDS 190209 (Confirmed/Failed)' };
+    if (result !== null) {
+      if (result.length === 0) return { codes: [], variant: 'UDS 190209 (Clean)' };
+      if (this._verifyCodes(result, dtcDictionary, true)) return { codes: this._formatForUI(result, dtcDictionary, true), variant: 'UDS 190209 (Confirmed/Failed)' };
+    }
 
     result = await this._executeRawDTC('190208', decoders.dtc_uds);
-    if (this._verifyCodes(result, dtcDictionary, true)) return { codes: this._formatForUI(result, dtcDictionary, true), variant: 'UDS 190208 (Confirmed)' };
+    if (result !== null) {
+      if (result.length === 0) return { codes: [], variant: 'UDS 190208 (Clean)' };
+      if (this._verifyCodes(result, dtcDictionary, true)) return { codes: this._formatForUI(result, dtcDictionary, true), variant: 'UDS 190208 (Confirmed)' };
+    }
 
     result = await this._executeRawDTC('19020C', decoders.dtc_uds);
-    if (this._verifyCodes(result, dtcDictionary, true)) return { codes: this._formatForUI(result, dtcDictionary, true), variant: 'UDS 19020C (Conf/Not Complete)' };
+    if (result !== null) {
+      if (result.length === 0) return { codes: [], variant: 'UDS 19020C (Clean)' };
+      if (this._verifyCodes(result, dtcDictionary, true)) return { codes: this._formatForUI(result, dtcDictionary, true), variant: 'UDS 19020C (Conf/Not Complete)' };
+    }
 
     result = await this._executeRawDTC('190201', decoders.dtc_uds);
-    if (this._verifyCodes(result, dtcDictionary, true)) return { codes: this._formatForUI(result, dtcDictionary, true), variant: 'UDS 190201 (Active)' };
+    if (result !== null) {
+      if (result.length === 0) return { codes: [], variant: 'UDS 190201 (Clean)' };
+      if (this._verifyCodes(result, dtcDictionary, true)) return { codes: this._formatForUI(result, dtcDictionary, true), variant: 'UDS 190201 (Active)' };
+    }
 
     result = await this._executeRawDTC('1902FF', decoders.dtc_uds);
-    if (this._verifyCodes(result, dtcDictionary, true)) return { codes: this._formatForUI(result, dtcDictionary, true), variant: 'UDS 1902FF (All Statuses)' };
+    if (result !== null) {
+      if (result.length === 0) return { codes: [], variant: 'UDS 1902FF (Clean)' };
+      if (this._verifyCodes(result, dtcDictionary, true)) return { codes: this._formatForUI(result, dtcDictionary, true), variant: 'UDS 1902FF (All Statuses)' };
+    }
 
-
-    // --- БЛОК 2: СТАНДАРТНІ OBD-II МЕТОДИ (ISO 15031 / SAE J1979) ---
     result = await this._executeRawDTC('03', decoders.dtc);
-    if (this._verifyCodes(result, dtcDictionary, false)) return { codes: this._formatForUI(result, dtcDictionary, false), variant: 'Mode 03 (Збережені)' };
+    if (result !== null) {
+      if (result.length === 0) return { codes: [], variant: 'Mode 03 (Clean)' };
+      if (this._verifyCodes(result, dtcDictionary, false)) return { codes: this._formatForUI(result, dtcDictionary, false), variant: 'Mode 03 (Збережені)' };
+    }
 
     result = await this._executeRawDTC('07', decoders.dtc);
-    if (this._verifyCodes(result, dtcDictionary, false)) return { codes: this._formatForUI(result, dtcDictionary, false), variant: 'Mode 07 (Очікувані)' };
+    if (result !== null) {
+      if (result.length === 0) return { codes: [], variant: 'Mode 07 (Clean)' };
+      if (this._verifyCodes(result, dtcDictionary, false)) return { codes: this._formatForUI(result, dtcDictionary, false), variant: 'Mode 07 (Очікувані)' };
+    }
 
     result = await this._executeRawDTC('0A', decoders.dtc);
-    if (this._verifyCodes(result, dtcDictionary, false)) return { codes: this._formatForUI(result, dtcDictionary, false), variant: 'Mode 0A (Перманентні)' };
+    if (result !== null) {
+      if (result.length === 0) return { codes: [], variant: 'Mode 0A (Clean)' };
+      if (this._verifyCodes(result, dtcDictionary, false)) return { codes: this._formatForUI(result, dtcDictionary, false), variant: 'Mode 0A (Перманентні)' };
+    }
 
-
-    // --- БЛОК 3: СТАРІ ПРОТОКОЛИ KWP2000 (ISO 14230) ---
     result = await this._executeRawDTC('18000000', decoders.dtc_kwp);
-    if (this._verifyCodes(result, dtcDictionary, false)) return { codes: this._formatForUI(result, dtcDictionary, true), variant: 'KWP2000 18000000 (Всі)' };
+    if (result !== null) {
+      if (result.length === 0) return { codes: [], variant: 'KWP2000 18000000 (Clean)' };
+      if (this._verifyCodes(result, dtcDictionary, false)) return { codes: this._formatForUI(result, dtcDictionary, false), variant: 'KWP2000 18000000 (Всі)' };
+    }
 
     result = await this._executeRawDTC('1802FF00', decoders.dtc_kwp);
-    if (this._verifyCodes(result, dtcDictionary, false)) return { codes: this._formatForUI(result, dtcDictionary, true), variant: 'KWP2000 1802FF00 (Збережені)' };
+    if (result !== null) {
+      if (result.length === 0) return { codes: [], variant: 'KWP2000 1802FF00 (Clean)' };
+      if (this._verifyCodes(result, dtcDictionary, false)) return { codes: this._formatForUI(result, dtcDictionary, false), variant: 'KWP2000 1802FF00 (Збережені)' };
+    }
 
-
-    // --- FALLBACK ---
     const fallback = await this._executeRawDTC('03', decoders.dtc);
     return { codes: this._formatForUI(fallback || [], dtcDictionary, false), variant: 'Невідомі коди (Fallback Mode 03)' };
   }
 
-  // ── Private helpers for Smart DTC ─────────────────────────────────────────
-
   async _executeRawDTC(cmd, decoderFunc) {
     try {
       const response = await this._scanner.sendCommand(cmd);
-      if (!response) return [];
       
+      // 💾 ЛОГ: Найважливіший лог. Фіксує точну відповідь ЕБУ на запит помилок.
+      saveRawLog('DTC_RAW_RES', cmd, response || 'NO_RESPONSE');
+
+      if (!response) return null; 
+
+      const rawUpper = response.toUpperCase();
+
+      // Catch critical failures or empty reports
+      if (rawUpper.includes('ERROR') || rawUpper.includes('?') || rawUpper.includes('UNABLE')) {
+        return null; 
+      }
+      if (rawUpper.includes('NODATA') || rawUpper.includes('NO DATA') || rawUpper === 'OK') {
+        return []; 
+      }
+      
+      // Split into lines and strip whitespace
       const lines = response.split(/[\r\n]+/).map(l => l.replace(/[\s>]/g, '').toUpperCase());
-      let allCodes = [];
+      
+      let fullHexPayload = "";
 
-      for (const line of lines) {
+      // 1. ASSEMBLE MULTI-FRAME DATA
+      for (let line of lines) {
         if (!line || line.includes('NODATA') || line.includes('ERROR')) continue;
+        
+        // Strip ELM327 multi-frame PCI indicators (e.g., "0:", "1:", "2:")
+        line = line.replace(/^[0-9A-F]:/, '');
+        
+        fullHexPayload += line;
+      }
 
-        let hexData = null;
+      let hexData = null;
 
-        if (cmd === '03' || cmd === '07' || cmd === '0A') {
-          const expectedPrefix = '4' + cmd.charAt(1);
-          const prefixIdx = line.indexOf(expectedPrefix);
-          if (prefixIdx !== -1) {
-            hexData = line.substring(prefixIdx + 2);
-          }
-        } else if (cmd.startsWith('19')) {
-          const prefixIdx = line.indexOf('5902');
-          if (prefixIdx !== -1) hexData = line.substring(prefixIdx);
-        } else if (cmd.startsWith('18')) {
-          const prefixIdx = line.indexOf('58');
-          if (prefixIdx !== -1) hexData = line.substring(prefixIdx);
-        }
-
-        if (hexData) {
-          // Count Byte Fix: If standard OBD and length is off by 2 (e.g. 6 chars for 1 DTC), 
-          // the first byte is a count byte. Strip it before passing to decoder.
-          if ((cmd === '03' || cmd === '07' || cmd === '0A') && hexData.length % 4 !== 0) {
+      // 2. EXTRACT PAYLOAD BASED ON PROTOCOL PREFIX
+      if (cmd === '03' || cmd === '07' || cmd === '0A') {
+        const expectedPrefix = '4' + cmd.charAt(1);
+        const prefixIdx = fullHexPayload.indexOf(expectedPrefix);
+        
+        if (prefixIdx !== -1) {
+          hexData = fullHexPayload.substring(prefixIdx + 2);
+          
+          // Count Byte Fix: If length isn't divisible by 4, the first 2 chars are the count byte
+          if (hexData.length % 4 !== 0) {
              hexData = hexData.substring(2);
           }
+        }
+      } else if (cmd.startsWith('19')) {
+        const prefixIdx = fullHexPayload.indexOf('5902');
+        if (prefixIdx !== -1) hexData = fullHexPayload.substring(prefixIdx);
+      } else if (cmd.startsWith('18')) {
+        const prefixIdx = fullHexPayload.indexOf('58');
+        if (prefixIdx !== -1) hexData = fullHexPayload.substring(prefixIdx);
+      }
 
-          const decoded = decoderFunc(hexData);
-          if (Array.isArray(decoded)) {
-            allCodes.push(...decoded);
-          }
+      // 3. DECODE
+      if (hexData) {
+        const decoded = decoderFunc(hexData);
+        if (Array.isArray(decoded) && decoded.length > 0) {
+          
+          // 💾 ЛОГ: Фіксуємо фінально розшифровані помилки
+          saveRawLog('DTC_DECODED', cmd, JSON.stringify(decoded));
+          
+          return decoded;
         }
       }
 
-      return allCodes;
-    } catch (err) {
-      console.warn(`[OBD SmartDTC] Помилка запиту ${cmd}:`, err.message);
       return [];
+    } catch (err) {
+      // 💾 ЛОГ: Критична помилка під час спроби зчитати/декодувати DTC
+      saveRawLog('DTC_FATAL_ERROR', cmd, err.message, true);
+      console.warn(`[OBD SmartDTC] Помилка запиту ${cmd}:`, err.message);
+      return null;
     }
   }
 

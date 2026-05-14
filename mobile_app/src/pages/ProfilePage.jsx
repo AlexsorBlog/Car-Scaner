@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTelemetry } from '../context/TelemetryContext.jsx';
+import { getRawLogs } from '../services/db.js';
+import { toast } from '../components/ui/Toast.jsx';
 
 export default function ProfilePage() {
   const { user, isLoading, refreshProfile } = useTelemetry();
@@ -55,12 +57,34 @@ export default function ProfilePage() {
 
   const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
+  // Експорт сирих логів OBD
+  const exportDiagnosticLogs = async () => {
+    try {
+      const logs = await getRawLogs();
+      if (!logs || logs.length === 0) {
+        toast.info('Логи порожні. Спочатку підключіться до авто.');
+        return;
+      }
+      
+      const logText = logs.map(l => {
+        const time = new Date(l.timestamp).toLocaleTimeString('uk-UA', { hour12: false });
+        return `[${time}] [${l.type}] CMD: ${l.command} | RES: ${l.response} ${l.isError ? '(ERROR)' : ''}`;
+      }).join('\n');
+
+      await navigator.clipboard.writeText(logText);
+      toast.success('Логи скопійовано! Тепер ви можете надіслати їх у Telegram.');
+    } catch (err) {
+      console.error("Помилка експорту логів", err);
+      toast.error('Не вдалося експортувати логи.');
+    }
+  };
+
   if (isLoading) {
     return <div className="min-h-screen bg-[#050505] flex justify-center items-center"><div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div></div>;
   }
 
   return (
-    <div className="p-5 flex flex-col gap-6 animate-in slide-in-from-bottom-4 duration-500 pt-10">
+    <div className="p-5 flex flex-col gap-6 animate-in slide-in-from-bottom-4 duration-500 pt-10 pb-24">
       
       {/* Шапка профілю з кнопкою редагування */}
       <div className="flex flex-col items-center relative">
@@ -125,8 +149,23 @@ export default function ProfilePage() {
         </div>
       </div>
 
+      {/* Розробник / Діагностика */}
+      <div>
+        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">СЛУЖБОВА ІНФОРМАЦІЯ</h3>
+        <button 
+          onClick={exportDiagnosticLogs} 
+          className="w-full bg-[#111318] hover:bg-[#161922] border border-gray-800 text-gray-300 font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2"
+        >
+          <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+          ЕКСПОРТУВАТИ ЛОГИ ЕБУ
+        </button>
+        <p className="text-[10px] text-gray-600 text-center mt-2 px-4">
+          У разі виникнення помилок зчитайте лог і надішліть його розробнику для аналізу.
+        </p>
+      </div>
+
       {/* Вихід */}
-      <button onClick={handleLogout} className="mt-4 w-full bg-red-900/20 hover:bg-red-900/40 border border-red-900/50 text-red-500 font-bold py-4 rounded-xl transition-all">
+      <button onClick={handleLogout} className="mt-2 w-full bg-red-900/20 hover:bg-red-900/40 border border-red-900/50 text-red-500 font-bold py-4 rounded-xl transition-all">
         ВИЙТИ З АКАУНТУ
       </button>
     </div>
