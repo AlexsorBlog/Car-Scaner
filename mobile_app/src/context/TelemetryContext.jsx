@@ -34,6 +34,7 @@ import {
   saveTelemetryData,
   getRecentTelemetry,
   summarizeOldData,
+  saveDiagnosticReport // 📥 ДОДАНО: Імпорт для збереження історії
 }                                        from '../services/db.js';
 import dtcDictionary                    from '../obd/codes.json';
 
@@ -105,8 +106,6 @@ export function TelemetryProvider({ children }) {
 
   // ── Profile fetch ───────────────────────────────────────────────────────────
 
-  // ── Profile fetch ───────────────────────────────────────────────────────────
-
   const fetchUserProfile = useCallback(async () => {
     const token = requireAuth();
     if (!token) {
@@ -163,6 +162,7 @@ export function TelemetryProvider({ children }) {
       setIsLoading(false);
     }
   }, [navigate, requireAuth]);
+
   // ── OBD polling loop ─────────────────────────────────────────────────────────
 
   const _startPolling = useCallback(async (signal) => {
@@ -307,16 +307,13 @@ export function TelemetryProvider({ children }) {
 
       // Форматуємо результат для UI
       const finalErrors = result.codes.map(codeItem => {
-        // UDS повертає об'єкт { base: 'P0597', full: 'P0597-00' }
-        // Звичайні режими повертають просто рядок 'P0104'
-        const isUds = typeof codeItem === 'object';
-        const baseCode = isUds ? codeItem.base : codeItem;
-        const displayCode = isUds ? codeItem.full : codeItem;
+        // obd.smartReadDTC вже повертає об'єкт: { code, title, desc, base }
+        const baseCode = codeItem.base;
 
         return {
-          code: displayCode,
-          title: dtcDictionary[baseCode] || 'Невідомий код (Відсутній в базі)',
-          desc: `Отримано через протокол: ${result.variant}`,
+          code: codeItem.code, // Використовуємо вже підготовлений код
+          title: codeItem.title, // Беремо заголовок зі словника
+          desc: `Отримано через протокол: ${result.variant}`, // Перезаписуємо опис протоколом
           severity: _classifyDtcSeverity(baseCode),
           cost: _estimateDtcCost(baseCode),
         };
@@ -329,6 +326,10 @@ export function TelemetryProvider({ children }) {
         lastScanTime:     now,
       }));
 
+      // 💾 НОВЕ: Зберігаємо в БД ОДИН РАЗ одразу після сканування
+      // Зберігаємо навіть якщо finalErrors пустий (це означає, що авто здорове!)
+      saveDiagnosticReport('scanned_errors', finalErrors).catch(console.error);
+
     } catch (err) {
       console.error('[Telemetry] scanErrors:', err);
       setData(prev => ({ ...prev, errors: [], hasScannedErrors: true }));
@@ -337,6 +338,7 @@ export function TelemetryProvider({ children }) {
       isPaused.current = false;
     }
   }, []);
+
   // ── Public: clear DTCs (with state-based confirmation) ─────────────────────
 
   const clearErrors = useCallback(() => {
@@ -353,6 +355,10 @@ export function TelemetryProvider({ children }) {
           try {
             await obd.query(mode4.CLEAR_DTC);
             setData(prev => ({ ...prev, errors: [], hasScannedErrors: false }));
+            
+            // 💾 НОВЕ: Записуємо в історію, що помилки були стерті (порожній масив = чисто)
+            saveDiagnosticReport('scanned_errors', []).catch(console.error);
+
             resolve(true);
           } catch (err) {
             console.error('[Telemetry] clearErrors:', err);

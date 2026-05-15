@@ -1,24 +1,7 @@
-/**
- * obd/index.js — High-level OBD-II query manager
- *
- * Fixed bugs vs original:
- * - AT commands (ATI, ATRV) returned null because the response parser looked
- * for a "41xx" / "43" prefix that AT responses don't have
- * - Mode 03 / 07 DTC responses were silently dropped because the parser
- * expected a PID byte after "43" but mode-3 has no PID
- * - No error handling in initEngine — AT command failures were invisible
- * - No protocol detection step
- * - query() called decoder even when hexData was empty string
- * - Fixed: Imported missing 'decoders' module.
- * - Fixed: Added Count Byte stripping to _executeRawDTC.
- * - Fixed: Added _formatForUI to map raw codes to dictionary strings for the UI.
- * - NEW: Added comprehensive raw telemetry logging for detailed analysis.
- */
-
 import { obdScanner } from '../services/bleService.js';
 import { commands }   from './commands.js';
 import * as decoders  from './decoders.js';
-import { saveRawLog } from '../services/db.js'; // 📥 ВАЖЛИВО: Імпорт логера
+import { saveRawLog } from '../services/db.js'; 
 
 const AT_CMD_RE = /^AT/i;
 const MODE_NO_PID = new Set(['03', '04', '07', '08', '09']);
@@ -48,7 +31,6 @@ class OBDManager {
         const res = await this._scanner.sendCommand(step.cmd);
         console.log(`[OBD init] ${step.desc}: ${res}`);
         
-        // 💾 ЛОГ: Зберігаємо ініціалізацію для дебагу протоколів
         saveRawLog('INIT', step.cmd, res || 'NO_RESPONSE');
 
         if (step.cmd === 'ATZ' && !res.toUpperCase().includes('ELM')) {
@@ -58,7 +40,6 @@ class OBDManager {
           await this._sleep(step.delay);
         }
       } catch (err) {
-        // 💾 ЛОГ: Зберігаємо помилку ініціалізації
         saveRawLog('INIT_ERROR', step.cmd, err.message, true);
         console.error(`[OBD init] ${step.desc} failed:`, err.message);
       }
@@ -80,10 +61,8 @@ class OBDManager {
     let response;
     try {
       response = await this._scanner.sendCommand(cmdObj.command);
-      // 💾 ЛОГ: Успішний запит показників
       saveRawLog('QUERY', cmdObj.command, response || 'NO_RESPONSE');
     } catch (err) {
-      // 💾 ЛОГ: Помилка запиту
       saveRawLog('QUERY_ERROR', cmdObj.command, err.message, true);
       console.error(`[OBD] sendCommand failed for ${cmdObj.name}:`, err.message);
       return null;
@@ -228,74 +207,74 @@ class OBDManager {
     try {
       const response = await this._scanner.sendCommand(cmd);
       
-      // 💾 ЛОГ: Найважливіший лог. Фіксує точну відповідь ЕБУ на запит помилок.
       saveRawLog('DTC_RAW_RES', cmd, response || 'NO_RESPONSE');
 
       if (!response) return null; 
 
       const rawUpper = response.toUpperCase();
 
-      // Catch critical failures or empty reports
-      if (rawUpper.includes('ERROR') || rawUpper.includes('?') || rawUpper.includes('UNABLE')) {
+      if (
+        rawUpper.includes('ERROR') || 
+        rawUpper.includes('?') || 
+        rawUpper.includes('UNABLE') || 
+        rawUpper.includes('NODATA') || 
+        rawUpper.includes('NO DATA')
+      ) {
         return null; 
       }
-      if (rawUpper.includes('NODATA') || rawUpper.includes('NO DATA') || rawUpper === 'OK') {
-        return []; 
-      }
       
-      // Split into lines and strip whitespace
       const lines = response.split(/[\r\n]+/).map(l => l.replace(/[\s>]/g, '').toUpperCase());
-      
       let fullHexPayload = "";
 
-      // 1. ASSEMBLE MULTI-FRAME DATA
       for (let line of lines) {
-        if (!line || line.includes('NODATA') || line.includes('ERROR')) continue;
-        
-        // Strip ELM327 multi-frame PCI indicators (e.g., "0:", "1:", "2:")
+        if (!line) continue;
         line = line.replace(/^[0-9A-F]:/, '');
-        
         fullHexPayload += line;
       }
 
       let hexData = null;
+      let prefixFound = false;
 
-      // 2. EXTRACT PAYLOAD BASED ON PROTOCOL PREFIX
       if (cmd === '03' || cmd === '07' || cmd === '0A') {
         const expectedPrefix = '4' + cmd.charAt(1);
         const prefixIdx = fullHexPayload.indexOf(expectedPrefix);
         
         if (prefixIdx !== -1) {
+          prefixFound = true;
           hexData = fullHexPayload.substring(prefixIdx + 2);
           
-          // Count Byte Fix: If length isn't divisible by 4, the first 2 chars are the count byte
           if (hexData.length % 4 !== 0) {
              hexData = hexData.substring(2);
           }
         }
       } else if (cmd.startsWith('19')) {
         const prefixIdx = fullHexPayload.indexOf('5902');
-        if (prefixIdx !== -1) hexData = fullHexPayload.substring(prefixIdx);
+        if (prefixIdx !== -1) {
+          prefixFound = true;
+          hexData = fullHexPayload.substring(prefixIdx);
+        }
       } else if (cmd.startsWith('18')) {
         const prefixIdx = fullHexPayload.indexOf('58');
-        if (prefixIdx !== -1) hexData = fullHexPayload.substring(prefixIdx);
-      }
-
-      // 3. DECODE
-      if (hexData) {
-        const decoded = decoderFunc(hexData);
-        if (Array.isArray(decoded) && decoded.length > 0) {
-          
-          // 💾 ЛОГ: Фіксуємо фінально розшифровані помилки
-          saveRawLog('DTC_DECODED', cmd, JSON.stringify(decoded));
-          
-          return decoded;
+        if (prefixIdx !== -1) {
+          prefixFound = true;
+          hexData = fullHexPayload.substring(prefixIdx);
         }
       }
 
-      return [];
+      if (!prefixFound) {
+        return null; 
+      }
+
+      const decoded = decoderFunc(hexData || "");
+      if (Array.isArray(decoded)) {
+        if (decoded.length > 0) {
+          saveRawLog('DTC_DECODED', cmd, JSON.stringify(decoded));
+        }
+        return decoded; 
+      }
+
+      return null;
     } catch (err) {
-      // 💾 ЛОГ: Критична помилка під час спроби зчитати/декодувати DTC
       saveRawLog('DTC_FATAL_ERROR', cmd, err.message, true);
       console.warn(`[OBD SmartDTC] Помилка запиту ${cmd}:`, err.message);
       return null;

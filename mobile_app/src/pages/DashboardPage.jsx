@@ -86,7 +86,6 @@ export default function DashboardPage() {
   const isNative = Capacitor.getPlatform() !== 'web';
   const [useEmulator, setUseEmulator] = useState(!isNative);
   
-  // Система профілів лайаутів
   const [layouts, setLayouts] = useState(() => {
     const saved = localStorage.getItem('dashboardLayoutProfiles');
     if (saved) return JSON.parse(saved);
@@ -96,17 +95,14 @@ export default function DashboardPage() {
   });
   const [activeTabId, setActiveTabId] = useState(() => localStorage.getItem('dashboardActiveTabId') || 'default');
   
-  // Поточний відображуваний макет (береться з масиву layouts)
   const [layout, setLayout] = useState(() => {
     return layouts.find(l => l.id === (localStorage.getItem('dashboardActiveTabId') || 'default'))?.items || INITIAL_LAYOUT;
   });
 
   const [originalLayout, setOriginalLayout] = useState(layout);
   const [isEditMode, setIsEditMode] = useState(false);
-  
   const [selectedGraph, setSelectedGraph] = useState(null);
   
-  // Graph State
   const [dbGraphData, setDbGraphData] = useState([]);
   const [isGraphLoading, setIsGraphLoading] = useState(false);
   const [panOffsetMs, setPanOffsetMs] = useState(0); 
@@ -114,27 +110,24 @@ export default function DashboardPage() {
   const touchStartX = useRef(null);
   const hasAutoJumped = useRef(false);
 
-  // Analysis State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [analysisResults, setAnalysisResults] = useState([]);
   const [showAnalysisModal, setShowAnalysisModal] = useState(false);
   
-  // History States
   const [diagnosticHistory, setDiagnosticHistory] = useState([]);
   const [errorHistory, setErrorHistory] = useState([]);
   const [showErrorHistoryModal, setShowErrorHistoryModal] = useState(false);
 
-  // Performance State
   const [perfState, setPerfState] = useState('idle'); 
   const [perfTime, setPerfTime] = useState(0);
   const [perfRecords, setPerfRecords] = useState([]);
   const [perfFilter, setPerfFilter] = useState(100); 
   const [selectedPerfRecord, setSelectedPerfRecord] = useState(null); 
 
-  // Trip Distance State
-  const [tripDistance, setTripDistance] = useState(0); // Дистанція в кілометрах
+  const [tripDistance, setTripDistance] = useState(() => Number(localStorage.getItem('obd_trip_distance')) || 0); 
   const lastSpeedTime = useRef(Date.now());
+  const currentSpeedRef = useRef(0);
   
   const perfInterval = useRef(null);
   const perfStartTime = useRef(null);
@@ -192,21 +185,30 @@ export default function DashboardPage() {
   }, [telemetry.speed, perfState, telemetry]);
 
   useEffect(() => {
-    const now = Date.now();
-    const timeDiffMs = now - lastSpeedTime.current;
-    lastSpeedTime.current = now;
+    currentSpeedRef.current = telemetry.speed || 0;
+  }, [telemetry.speed]);
 
-    // Рахуємо дистанцію тільки якщо ми підключені і авто рухається
-    if (telemetry.isConnected && telemetry.speed > 0) {
-      // Переводимо мілісекунди в години (1 год = 3 600 000 мс)
-      const hoursPassed = timeDiffMs / 3600000;
-      
-      // Дистанція (км) = Швидкість (км/год) * Час (год)
-      const distanceDelta = telemetry.speed * hoursPassed;
-      
-      setTripDistance(prev => prev + distanceDelta);
-    }
-  }, [telemetry.speed, telemetry.isConnected]);
+  useEffect(() => {
+    lastSpeedTime.current = Date.now();
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const timeDiffMs = now - lastSpeedTime.current;
+      lastSpeedTime.current = now;
+
+      if (telemetry.isConnected && currentSpeedRef.current > 0) {
+        const hoursPassed = timeDiffMs / 3600000;
+        const distanceDelta = currentSpeedRef.current * hoursPassed;
+
+        setTripDistance(prev => {
+          const newTotal = prev + distanceDelta;
+          localStorage.setItem('obd_trip_distance', newTotal.toString());
+          return newTotal;
+        });
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [telemetry.isConnected]);
 
   const togglePerfTimer = () => {
     if (perfState === 'idle' || perfState === 'finished') {
@@ -249,19 +251,16 @@ export default function DashboardPage() {
           const prev = telemetryArray[i - 1];
           const curr = telemetryArray[i];
 
-          // Різниця в часі у годинах
           const dtHours = (curr.t - prev.t) / 3600000;
-          // Середня швидкість між двома точками
           const avgSpeed = (curr.speed + prev.speed) / 2; 
           
           distanceKm += (avgSpeed * dtHours);
 
-          // Зупиняємо підрахунок, як тільки досягли потрібної швидкості
           if (curr.speed >= targetSpeed) {
               break; 
           }
       }
-      return distanceKm * 1000; // Повертаємо метри
+      return distanceKm * 1000; 
   };
 
   const formatPerfTime = (ms) => ms === null ? '--' : (ms / 1000).toFixed(2) + 's';
@@ -319,7 +318,6 @@ export default function DashboardPage() {
     telemetry.setTransportMode(nextEmulator ? TRANSPORT.EMULATOR : TRANSPORT.NATIVE); 
   };
 
-  // --- ЛОГІКА ПРОФІЛІВ (ВКЛАДОК) ---
   const switchTab = (id) => {
     if (isEditMode) return; 
     setActiveTabId(id);
@@ -337,7 +335,6 @@ export default function DashboardPage() {
     setLayouts(newLayouts);
     localStorage.setItem('dashboardLayoutProfiles', JSON.stringify(newLayouts));
     
-    // Одразу активуємо нову вкладку
     setActiveTabId(newId);
     setLayout(INITIAL_LAYOUT);
     localStorage.setItem('dashboardActiveTabId', newId);
@@ -355,7 +352,6 @@ export default function DashboardPage() {
     }
   };
 
-  // Функція перейменування вкладки
   const renameTab = (id, currentName) => {
     const newName = window.prompt("Введіть нову назву для вкладки:", currentName);
     if (newName && newName.trim().length > 0) {
@@ -435,11 +431,11 @@ export default function DashboardPage() {
       const cmd = allCommands[i];
       setAnalysisProgress(Math.round(((i + 1) / totalCmds) * 100));
       if (
-        cmd.name.includes('PIDS_') ||     // Пропускаємо бітові маски (PIDS_A, DTC_PIDS_B тощо)
-        cmd.name.includes('MIDS_') ||     // Пропускаємо маски моніторів (MIDS_A)
-        cmd.name.startsWith('MONITOR_')   // Пропускаємо всі нерозшифровані тести Mode 06
+        cmd.name.includes('PIDS_') ||     
+        cmd.name.includes('MIDS_') ||     
+        cmd.name.startsWith('MONITOR_')   
       ) {
-        continue; // Переходимо до наступної команди без запиту
+        continue; 
       }
       try {
         const res = await obd.query(cmd);
@@ -459,12 +455,6 @@ export default function DashboardPage() {
       fetchAnalysisHistory(); 
     }
   };
-
-  useEffect(() => {
-    if (telemetry.hasScannedErrors && telemetry.errors.length > 0) {
-      saveDiagnosticReport('scanned_errors', telemetry.errors);
-    }
-  }, [telemetry.hasScannedErrors, telemetry.errors]);
 
   const handleZoomChange = (newZoomMs) => {
       if (panOffsetMs > 0) {
@@ -711,11 +701,21 @@ export default function DashboardPage() {
             )}
             <span className="text-[10px] text-gray-500 font-bold tracking-widest mt-1 relative z-10">КМ/ГОД</span>
             
-            {/* НОВИЙ БЛОК: Пройдена дистанція */}
             {!isWaitingData && (
-              <div className="mt-2 flex flex-col items-center relative z-10 bg-[#050505]/50 px-4 py-1 rounded-full border border-gray-800/80 shadow-inner">
-                <span className="text-[8px] text-gray-500 uppercase tracking-widest">Проїхано (Trip)</span>
-                {/* toFixed(3) показуватиме точність до метрів (напр. 1.254 км) */}
+              <div className="mt-2 flex flex-col items-center relative z-10 bg-[#050505]/50 px-4 py-1 rounded-full border border-gray-800/80 shadow-inner group">
+                <span className="text-[8px] text-gray-500 uppercase tracking-widest flex items-center">
+                  Проїхано (Trip)
+                  <button 
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      setTripDistance(0); 
+                      localStorage.setItem('obd_trip_distance', '0'); 
+                    }} 
+                    className="hidden group-hover:block ml-2 text-red-400 hover:text-red-300 font-bold"
+                  >
+                    ✕
+                  </button>
+                </span>
                 <span className="text-xs font-bold text-blue-400 tabular-nums">{tripDistance.toFixed(3)} км</span>
               </div>
             )}
@@ -779,7 +779,7 @@ export default function DashboardPage() {
 
       {!telemetry.isConnected ? (
         <button onClick={telemetry.connectOBD} disabled={telemetry.isConnecting} className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold py-3.5 rounded-xl shadow-[0_0_15px_rgba(37,99,235,0.3)] transition-all text-sm">
-          {telemetry.isConnecting ? 'З\'ЄДНАННЯ...' : 'ПІДКЛЮЧИТИ СКАНЕР'}
+          {telemetry.isConnecting ? 'З\'ЄДНАННЯ...' : 'ПІДКЛЮЧИТСКАНЕР'}
         </button>
       ) : (
         <button onClick={telemetry.disconnectOBD} className="w-full bg-red-950/40 hover:bg-red-900/50 text-red-400 font-bold py-3.5 rounded-xl border border-red-900/30 transition-all text-sm">
@@ -804,7 +804,6 @@ export default function DashboardPage() {
                   {l.name}
                   {isEditMode && activeTabId === l.id && <span className="ml-1 opacity-70">✏️</span>}
                </button>
-               {/* Кнопка видалення кастомної вкладки під час режиму редагування */}
                {isEditMode && l.id !== 'default' && activeTabId === l.id && (
                   <button onClick={(e) => { e.stopPropagation(); deleteTab(l.id); }} className="absolute -top-1 -right-1 bg-red-600 text-white w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-bold shadow-md hover:bg-red-500 z-20">
                      ×
@@ -915,7 +914,6 @@ export default function DashboardPage() {
              <span className="text-4xl font-black tabular-nums font-mono text-white">
                {formatPerfTime(perfTime)}
              </span>
-             {/* НОВИЙ БЛОК: Вивід метрів під час або після заміру */}
              {(perfState === 'running' || perfState === 'finished') && (
                <span className="text-sm font-bold text-gray-400 tabular-nums">
                  ({Math.round(getMilestoneDistance(currentRunData.current, perfFilter))} м)
@@ -1068,12 +1066,19 @@ export default function DashboardPage() {
                        {new Date(report.timestamp).toLocaleString('uk-UA')}
                      </div>
                      <div className="space-y-2">
-                       {report.data.map((err, i) => (
-                         <div key={i} onClick={() => navigate('/diagnostics', { state: { selectedError: err } })} className="flex items-center gap-3 bg-red-950/10 p-2 rounded-lg border border-red-900/20 cursor-pointer hover:bg-red-900/30 transition-colors">
-                           <div className="text-xs font-bold text-red-400">{err.code}</div>
-                           <div className="text-[10px] text-gray-400 truncate">{err.title}</div>
+                       {report.data.length === 0 ? (
+                         <div className="flex items-center gap-3 bg-green-950/10 p-3 rounded-xl border border-green-900/20">
+                           <div className="w-6 h-6 rounded-full bg-green-500/10 flex items-center justify-center text-green-500 font-bold text-[10px]">✓</div>
+                           <div className="text-xs font-bold text-green-400">Помилок не виявлено (Система в нормі)</div>
                          </div>
-                       ))}
+                       ) : (
+                         report.data.map((err, i) => (
+                           <div key={i} onClick={() => navigate('/diagnostics', { state: { selectedError: err } })} className="flex items-center gap-3 bg-red-950/10 p-2 rounded-lg border border-red-900/20 cursor-pointer hover:bg-red-900/30 transition-colors">
+                             <div className="text-xs font-bold text-red-400">{err.code}</div>
+                             <div className="text-[10px] text-gray-400 truncate">{err.title}</div>
+                           </div>
+                         ))
+                       )}
                      </div>
                    </div>
                  ))
@@ -1116,7 +1121,6 @@ export default function DashboardPage() {
                     <div className="text-[10px] text-gray-500 mt-1">{new Date(selectedPerfRecord.timestamp).toLocaleString('uk-UA')}</div>
                  </div>
                  <div className="flex items-center gap-4">
-                    {/* НОВИЙ БЛОК: Вивід часу ТА дистанції у модалці */}
                     <div className="flex items-baseline gap-2">
                       <span className="text-2xl font-black text-white">
                         {formatPerfTime(getMilestoneTime(selectedPerfRecord.data[0].telemetry, perfFilter) || selectedPerfRecord.data[0].timeMs)}
