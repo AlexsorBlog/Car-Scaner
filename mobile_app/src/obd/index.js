@@ -53,10 +53,7 @@ class OBDManager {
   }
 
   async query(cmdObj) {
-    if (!cmdObj?.command) {
-      console.error('[OBD] query called with invalid command object');
-      return null;
-    }
+    if (!cmdObj?.command) return null;
 
     let response;
     try {
@@ -64,7 +61,6 @@ class OBDManager {
       saveRawLog('QUERY', cmdObj.command, response || 'NO_RESPONSE');
     } catch (err) {
       saveRawLog('QUERY_ERROR', cmdObj.command, err.message, true);
-      console.error(`[OBD] sendCommand failed for ${cmdObj.name}:`, err.message);
       return null;
     }
 
@@ -85,7 +81,6 @@ class OBDManager {
         const value = typeof cmdObj.decoder === 'function' ? cmdObj.decoder(clean) : clean;
         return { value, unit: '', raw: clean, name: cmdObj.name, desc: cmdObj.desc };
       } catch (err) {
-        console.warn(`[OBD] AT decoder error for ${cmdObj.name}:`, err.message);
         return null;
       }
     }
@@ -119,10 +114,7 @@ class OBDManager {
       ? hexData.substring(0, cmdObj.bytes * 2)
       : hexData;
 
-    if (typeof cmdObj.decoder !== 'function') {
-      console.warn(`[OBD] No decoder for ${cmdObj.name}`);
-      return null;
-    }
+    if (typeof cmdObj.decoder !== 'function') return null;
 
     try {
       const value = cmdObj.decoder(targetHex);
@@ -131,82 +123,91 @@ class OBDManager {
         value, unit: cmdObj.unit, raw: targetHex, name: cmdObj.name, desc: cmdObj.desc,
       };
     } catch (err) {
-      console.warn(`[OBD] Decoder error for ${cmdObj.name}:`, err.message);
       return null;
     }
   }
 
+  // 🔥 NEW WATERFALL DTC SCANNER
   async smartReadDTC(dtcDictionary = {}) {
-    let result;
+    const allCodes = new Map();
+    const usedVariants = [];
 
-    result = await this._executeRawDTC('190209', decoders.dtc_uds);
-    if (result !== null) {
-      if (result.length === 0) return { codes: [], variant: 'UDS 190209 (Clean)' };
-      if (this._verifyCodes(result, dtcDictionary, true)) return { codes: this._formatForUI(result, dtcDictionary, true), variant: 'UDS 190209 (Confirmed/Failed)' };
+    // Master list of every single way to ask a car for codes
+    const methods = [
+      { cmd: '190209', dec: decoders.dtc_uds, isUds: true,  name: 'UDS 09' },
+      { cmd: '190208', dec: decoders.dtc_uds, isUds: true,  name: 'UDS 08' },
+      { cmd: '19020C', dec: decoders.dtc_uds, isUds: true,  name: 'UDS 0C' },
+      { cmd: '190201', dec: decoders.dtc_uds, isUds: true,  name: 'UDS 01' },
+      { cmd: '1902FF', dec: decoders.dtc_uds, isUds: true,  name: 'UDS FF' },
+      { cmd: '03',     dec: decoders.dtc,     isUds: false, name: 'Mode 03' },
+      { cmd: '07',     dec: decoders.dtc,     isUds: false, name: 'Mode 07' },
+      { cmd: '0A',     dec: decoders.dtc,     isUds: false, name: 'Mode 0A' },
+      { cmd: '18000000', dec: decoders.dtc_kwp, isUds: false, name: 'KWP 00' },
+      { cmd: '1802FF00', dec: decoders.dtc_kwp, isUds: false, name: 'KWP FF' }
+    ];
+
+    // Run ALL methods, do not stop if one is empty
+    for (const method of methods) {
+      const result = await this._executeRawDTC(method.cmd, method.dec);
+      
+      if (result && result.length > 0) {
+        let addedNew = false;
+        
+        for (const item of result) {
+          const baseCode = method.isUds ? item.base : item;
+          
+          // 🔥 FATAL FILTER: Hard-delete ghost codes caused by J1979 ECU padding
+          if (['P0000', 'C0300', 'C0700', 'C0A00'].includes(baseCode)) continue;
+          
+          const isKnown = !!dtcDictionary[baseCode];
+          
+          // Only add if it's new, or if this version is known in our database
+          if (!allCodes.has(baseCode) || (isKnown && !allCodes.get(baseCode).isKnown)) {
+            allCodes.set(baseCode, {
+              code: method.isUds ? item.full : item,
+              base: baseCode,
+              isKnown: isKnown,
+              variant: method.name
+            });
+            addedNew = true;
+          }
+        }
+        
+        if (addedNew && !usedVariants.includes(method.name)) {
+          usedVariants.push(method.name);
+        }
+      }
     }
 
-    result = await this._executeRawDTC('190208', decoders.dtc_uds);
-    if (result !== null) {
-      if (result.length === 0) return { codes: [], variant: 'UDS 190208 (Clean)' };
-      if (this._verifyCodes(result, dtcDictionary, true)) return { codes: this._formatForUI(result, dtcDictionary, true), variant: 'UDS 190208 (Confirmed)' };
+    if (allCodes.size === 0) {
+      return { codes: [], variant: 'Комплексне сканування (Помилок не виявлено)' };
     }
 
-    result = await this._executeRawDTC('19020C', decoders.dtc_uds);
-    if (result !== null) {
-      if (result.length === 0) return { codes: [], variant: 'UDS 19020C (Clean)' };
-      if (this._verifyCodes(result, dtcDictionary, true)) return { codes: this._formatForUI(result, dtcDictionary, true), variant: 'UDS 19020C (Conf/Not Complete)' };
-    }
+    const finalCodes = Array.from(allCodes.values()).map(item => ({
+      code: item.code,
+      title: dtcDictionary[item.base] || "Невідома помилка",
+      desc: "Знайдено в базі",
+      base: item.base,
+      variant: item.variant
+    }));
 
-    result = await this._executeRawDTC('190201', decoders.dtc_uds);
-    if (result !== null) {
-      if (result.length === 0) return { codes: [], variant: 'UDS 190201 (Clean)' };
-      if (this._verifyCodes(result, dtcDictionary, true)) return { codes: this._formatForUI(result, dtcDictionary, true), variant: 'UDS 190201 (Active)' };
-    }
+    // Sort: Push recognized errors to the top of the list
+    finalCodes.sort((a, b) => {
+      const aKnown = !!dtcDictionary[a.base];
+      const bKnown = !!dtcDictionary[b.base];
+      if (aKnown === bKnown) return 0;
+      return aKnown ? -1 : 1;
+    });
 
-    result = await this._executeRawDTC('1902FF', decoders.dtc_uds);
-    if (result !== null) {
-      if (result.length === 0) return { codes: [], variant: 'UDS 1902FF (Clean)' };
-      if (this._verifyCodes(result, dtcDictionary, true)) return { codes: this._formatForUI(result, dtcDictionary, true), variant: 'UDS 1902FF (All Statuses)' };
-    }
-
-    result = await this._executeRawDTC('03', decoders.dtc);
-    if (result !== null) {
-      if (result.length === 0) return { codes: [], variant: 'Mode 03 (Clean)' };
-      if (this._verifyCodes(result, dtcDictionary, false)) return { codes: this._formatForUI(result, dtcDictionary, false), variant: 'Mode 03 (Збережені)' };
-    }
-
-    result = await this._executeRawDTC('07', decoders.dtc);
-    if (result !== null) {
-      if (result.length === 0) return { codes: [], variant: 'Mode 07 (Clean)' };
-      if (this._verifyCodes(result, dtcDictionary, false)) return { codes: this._formatForUI(result, dtcDictionary, false), variant: 'Mode 07 (Очікувані)' };
-    }
-
-    result = await this._executeRawDTC('0A', decoders.dtc);
-    if (result !== null) {
-      if (result.length === 0) return { codes: [], variant: 'Mode 0A (Clean)' };
-      if (this._verifyCodes(result, dtcDictionary, false)) return { codes: this._formatForUI(result, dtcDictionary, false), variant: 'Mode 0A (Перманентні)' };
-    }
-
-    result = await this._executeRawDTC('18000000', decoders.dtc_kwp);
-    if (result !== null) {
-      if (result.length === 0) return { codes: [], variant: 'KWP2000 18000000 (Clean)' };
-      if (this._verifyCodes(result, dtcDictionary, false)) return { codes: this._formatForUI(result, dtcDictionary, false), variant: 'KWP2000 18000000 (Всі)' };
-    }
-
-    result = await this._executeRawDTC('1802FF00', decoders.dtc_kwp);
-    if (result !== null) {
-      if (result.length === 0) return { codes: [], variant: 'KWP2000 1802FF00 (Clean)' };
-      if (this._verifyCodes(result, dtcDictionary, false)) return { codes: this._formatForUI(result, dtcDictionary, false), variant: 'KWP2000 1802FF00 (Збережені)' };
-    }
-
-    const fallback = await this._executeRawDTC('03', decoders.dtc);
-    return { codes: this._formatForUI(fallback || [], dtcDictionary, false), variant: 'Невідомі коди (Fallback Mode 03)' };
+    return { 
+      codes: finalCodes, 
+      variant: `Знайдено через: ${usedVariants.join(', ')}` 
+    };
   }
 
   async _executeRawDTC(cmd, decoderFunc) {
     try {
       const response = await this._scanner.sendCommand(cmd);
-      
       saveRawLog('DTC_RAW_RES', cmd, response || 'NO_RESPONSE');
 
       if (!response) return null; 
@@ -214,10 +215,8 @@ class OBDManager {
       const rawUpper = response.toUpperCase();
 
       if (
-        rawUpper.includes('ERROR') || 
-        rawUpper.includes('?') || 
-        rawUpper.includes('UNABLE') || 
-        rawUpper.includes('NODATA') || 
+        rawUpper.includes('ERROR') || rawUpper.includes('?') || 
+        rawUpper.includes('UNABLE') || rawUpper.includes('NODATA') || 
         rawUpper.includes('NO DATA')
       ) {
         return null; 
@@ -228,83 +227,54 @@ class OBDManager {
 
       for (let line of lines) {
         if (!line) continue;
-        line = line.replace(/^[0-9A-F]:/, '');
+        line = line.replace(/^[0-9A-F]:/, ''); // Remove CAN PCI frames
         fullHexPayload += line;
       }
 
-      let hexData = null;
+      let hexData = "";
       let prefixFound = false;
 
+      // 🔥 BUGFIX: Smart string alignment to prevent ELM327 multi-ECU shift
       if (cmd === '03' || cmd === '07' || cmd === '0A') {
         const expectedPrefix = '4' + cmd.charAt(1);
-        const prefixIdx = fullHexPayload.indexOf(expectedPrefix);
         
-        if (prefixIdx !== -1) {
-          prefixFound = true;
-          hexData = fullHexPayload.substring(prefixIdx + 2);
-          
-          if (hexData.length % 4 !== 0) {
-             hexData = hexData.substring(2);
+        let idx = fullHexPayload.indexOf(expectedPrefix);
+        if (idx !== -1) prefixFound = true;
+        
+        while (idx !== -1) {
+          let nextIdx = fullHexPayload.indexOf(expectedPrefix, idx + 2);
+          let ecuPayload = nextIdx !== -1 
+             ? fullHexPayload.substring(idx + 2, nextIdx) 
+             : fullHexPayload.substring(idx + 2);
+             
+          // If the payload has an odd count byte, strip it to realign to 4
+          if (ecuPayload.length % 4 !== 0) {
+             ecuPayload = ecuPayload.substring(2);
           }
+          
+          const validLen = Math.floor(ecuPayload.length / 4) * 4;
+          hexData += ecuPayload.substring(0, validLen);
+          
+          idx = nextIdx;
         }
-      } else if (cmd.startsWith('19')) {
-        const prefixIdx = fullHexPayload.indexOf('5902');
-        if (prefixIdx !== -1) {
-          prefixFound = true;
-          hexData = fullHexPayload.substring(prefixIdx);
-        }
-      } else if (cmd.startsWith('18')) {
-        const prefixIdx = fullHexPayload.indexOf('58');
-        if (prefixIdx !== -1) {
-          prefixFound = true;
-          hexData = fullHexPayload.substring(prefixIdx);
-        }
+      } else if (cmd.startsWith('19') || cmd.startsWith('18')) {
+        prefixFound = true; 
+        hexData = fullHexPayload; // KWP and UDS decoders handle this internally
       }
 
-      if (!prefixFound) {
-        return null; 
-      }
+      if (!prefixFound) return null; 
 
       const decoded = decoderFunc(hexData || "");
       if (Array.isArray(decoded)) {
-        if (decoded.length > 0) {
-          saveRawLog('DTC_DECODED', cmd, JSON.stringify(decoded));
-        }
+        if (decoded.length > 0) saveRawLog('DTC_DECODED', cmd, JSON.stringify(decoded));
         return decoded; 
       }
 
       return null;
     } catch (err) {
       saveRawLog('DTC_FATAL_ERROR', cmd, err.message, true);
-      console.warn(`[OBD SmartDTC] Помилка запиту ${cmd}:`, err.message);
       return null;
     }
-  }
-
-  _verifyCodes(codes, dictionary, isUds) {
-    if (!codes || codes.length === 0) return false;
-
-    let validCount = 0;
-    for (const codeItem of codes) {
-      const codeToVerify = isUds ? codeItem.base : codeItem; 
-      if (dictionary[codeToVerify]) {
-        validCount++;
-      }
-    }
-
-    return validCount > 0;
-  }
-
-  _formatForUI(codes, dictionary, isUds) {
-    return codes.map(item => {
-      const codeString = isUds ? item.base : item;
-      return {
-        code: codeString,
-        title: dictionary[codeString] || "Невідома помилка",
-        desc: dictionary[codeString] ? "Зверніться до технічної документації вашого авто." : "Опис не знайдено",
-        base: codeString
-      };
-    });
   }
 
   _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }

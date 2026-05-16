@@ -289,31 +289,28 @@ export function TelemetryProvider({ children }) {
 
   // ── Public: scan DTCs ───────────────────────────────────────────────────────
 
+  // ── Public: scan DTCs ───────────────────────────────────────────────────────
+
   const scanErrors = useCallback(async () => {
     setData(prev => ({ ...prev, isCheckingErrors: true }));
     isPaused.current = true;
 
-    // Даємо ЕБУ трохи часу "видихнути" перед запитами
     await new Promise(r => setTimeout(r, 800));
 
     try {
       const now = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
       
-      // 🔥 Викликаємо нашу нову розумну каскадну перевірку (Waterfall)
-      // Вона сама перебере Mode 03, 07, 0A та UDS 19, поки не знайде валідні коди
+      // Execute the Waterfall scanner
       const result = await obd.smartReadDTC(dtcDictionary);
-      
-      console.log(`[OBD] Сканування завершено. Використаний протокол: ${result.variant}`);
+      console.log(`[OBD] Сканування завершено. ${result.variant}`);
 
-      // Форматуємо результат для UI
       const finalErrors = result.codes.map(codeItem => {
-        // obd.smartReadDTC вже повертає об'єкт: { code, title, desc, base }
         const baseCode = codeItem.base;
-
         return {
-          code: codeItem.code, // Використовуємо вже підготовлений код
-          title: codeItem.title, // Беремо заголовок зі словника
-          desc: `Отримано через протокол: ${result.variant}`, // Перезаписуємо опис протоколом
+          code: codeItem.code, 
+          title: codeItem.title, 
+          // Show the user exactly which ECU method found the code
+          desc: `Протокол: ${codeItem.variant || result.variant}`, 
           severity: _classifyDtcSeverity(baseCode),
           cost: _estimateDtcCost(baseCode),
         };
@@ -326,8 +323,6 @@ export function TelemetryProvider({ children }) {
         lastScanTime:     now,
       }));
 
-      // 💾 НОВЕ: Зберігаємо в БД ОДИН РАЗ одразу після сканування
-      // Зберігаємо навіть якщо finalErrors пустий (це означає, що авто здорове!)
       saveDiagnosticReport('scanned_errors', finalErrors).catch(console.error);
 
     } catch (err) {
