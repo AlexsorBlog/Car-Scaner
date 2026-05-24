@@ -167,7 +167,8 @@ class OBDManager {
               code: method.isUds ? item.full : item,
               base: baseCode,
               isKnown: isKnown,
-              variant: method.name
+              variant: method.name,
+              statusByte: method.isUds ? (item.statusByte ?? null) : null, // ← new
             });
             addedNew = true;
           }
@@ -188,7 +189,8 @@ class OBDManager {
       title: dtcDictionary[item.base] || "Невідома помилка",
       desc: "Знайдено в базі",
       base: item.base,
-      variant: item.variant
+      variant: item.variant,
+      statusByte: item.statusByte ?? null, // ← new
     }));
 
     // Sort: Push recognized errors to the top of the list

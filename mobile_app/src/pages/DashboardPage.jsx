@@ -122,7 +122,7 @@ export default function DashboardPage() {
   const [perfState, setPerfState] = useState('idle'); 
   const [perfTime, setPerfTime] = useState(0);
   const [perfRecords, setPerfRecords] = useState([]);
-  const [perfFilter, setPerfFilter] = useState(100); 
+  const [perfFilter, setPerfFilter] = useState('0-100'); 
   const [selectedPerfRecord, setSelectedPerfRecord] = useState(null); 
 
   const [tripDistance, setTripDistance] = useState(() => Number(localStorage.getItem('obd_trip_distance')) || 0); 
@@ -237,30 +237,78 @@ export default function DashboardPage() {
     }
   };
 
-  const getMilestoneTime = (telemetryArray, targetSpeed) => {
+  const getMilestoneTime = (telemetryArray, filterKey) => {
       if (!telemetryArray || telemetryArray.length === 0) return null;
-      const point = telemetryArray.find(d => d.speed >= targetSpeed);
-      return point ? point.t : null;
+      const keyStr = String(filterKey);
+
+      if (keyStr.includes('-')) {
+        const parts = keyStr.split('-');
+        const startSpeed = Number(parts[0]);
+        const targetSpeed = Number(parts[1]);
+
+        let startPt = telemetryArray[0];
+        if (startSpeed > 0) {
+          startPt = telemetryArray.find(d => d.speed >= startSpeed);
+        }
+        const endPt = telemetryArray.find(d => d.speed >= targetSpeed);
+
+        if (!startPt || !endPt || startPt.t >= endPt.t) return null;
+        return endPt.t - startPt.t;
+      }
+
+      if (keyStr === '1/4mi' || keyStr === '1/2mi') {
+        const targetDistMeters = keyStr === '1/4mi' ? 402.336 : 804.672;
+        let dist = 0;
+        for (let i = 1; i < telemetryArray.length; i++) {
+          const prev = telemetryArray[i - 1];
+          const curr = telemetryArray[i];
+          const dtHours = (curr.t - prev.t) / 3600000;
+          const avgSpeed = (curr.speed + prev.speed) / 2;
+          dist += (avgSpeed * dtHours) * 1000;
+          if (dist >= targetDistMeters) {
+            return curr.t - telemetryArray[0].t;
+          }
+        }
+        return null;
+      }
+
+      return null;
   };
 
-  const getMilestoneDistance = (telemetryArray, targetSpeed) => {
+  const getMilestoneDistance = (telemetryArray, filterKey) => {
       if (!telemetryArray || telemetryArray.length < 2) return 0;
-      let distanceKm = 0;
-      
-      for (let i = 1; i < telemetryArray.length; i++) {
+      const keyStr = String(filterKey);
+      let distMeters = 0;
+
+      if (keyStr === '1/4mi') return 402.336;
+      if (keyStr === '1/2mi') return 804.672;
+
+      if (keyStr.includes('-')) {
+        const parts = keyStr.split('-');
+        const startSpeed = Number(parts[0]);
+        const targetSpeed = Number(parts[1]);
+
+        let tracking = startSpeed === 0;
+        for (let i = 1; i < telemetryArray.length; i++) {
           const prev = telemetryArray[i - 1];
           const curr = telemetryArray[i];
 
-          const dtHours = (curr.t - prev.t) / 3600000;
-          const avgSpeed = (curr.speed + prev.speed) / 2; 
-          
-          distanceKm += (avgSpeed * dtHours);
-
-          if (curr.speed >= targetSpeed) {
-              break; 
+          if (!tracking && curr.speed >= startSpeed) {
+             tracking = true;
           }
+
+          if (tracking) {
+            const dtHours = (curr.t - prev.t) / 3600000;
+            const avgSpeed = (curr.speed + prev.speed) / 2;
+            distMeters += (avgSpeed * dtHours) * 1000;
+          }
+
+          if (curr.speed >= targetSpeed) break;
+        }
+        return distMeters;
       }
-      return distanceKm * 1000; 
+
+      return 0;
   };
 
   const formatPerfTime = (ms) => ms === null ? '--' : (ms / 1000).toFixed(2) + 's';
@@ -779,7 +827,7 @@ export default function DashboardPage() {
 
       {!telemetry.isConnected ? (
         <button onClick={telemetry.connectOBD} disabled={telemetry.isConnecting} className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold py-3.5 rounded-xl shadow-[0_0_15px_rgba(37,99,235,0.3)] transition-all text-sm">
-          {telemetry.isConnecting ? 'З\'ЄДНАННЯ...' : 'ПІДКЛЮЧИТСКАНЕР'}
+          {telemetry.isConnecting ? 'З\'ЄДНАННЯ...' : 'ПІДКЛЮЧИТИ СКАНЕР'}
         </button>
       ) : (
         <button onClick={telemetry.disconnectOBD} className="w-full bg-red-950/40 hover:bg-red-900/50 text-red-400 font-bold py-3.5 rounded-xl border border-red-900/30 transition-all text-sm">
@@ -787,7 +835,6 @@ export default function DashboardPage() {
         </button>
       )}
 
-      {/* СИСТЕМА ПРОФІЛІВ (ВКЛАДКИ) */}
       <div className="flex gap-2 overflow-x-auto pb-1 mt-2 scrollbar-hide">
          {layouts.map(l => (
             <div key={l.id} className="relative flex items-center">
@@ -806,7 +853,7 @@ export default function DashboardPage() {
                </button>
                {isEditMode && l.id !== 'default' && activeTabId === l.id && (
                   <button onClick={(e) => { e.stopPropagation(); deleteTab(l.id); }} className="absolute -top-1 -right-1 bg-red-600 text-white w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-bold shadow-md hover:bg-red-500 z-20">
-                     ×
+                      ×
                   </button>
                )}
             </div>
@@ -860,17 +907,30 @@ export default function DashboardPage() {
               <span className="text-[10px] text-red-400 font-bold uppercase tracking-widest">{telemetry.errors.length} Помилки виявлено</span>
               <span className="text-[9px] text-gray-500">{telemetry.lastScanTime}</span>
             </div>
-            {telemetry.errors.map((err, i) => (
-              <div key={i} onClick={() => navigate('/diagnostics', { state: { selectedError: err } })} className="flex items-center justify-between bg-red-950/20 p-3 rounded-xl border border-red-900/30 cursor-pointer hover:bg-red-900/40 transition-colors shadow-sm">
-                <div className="flex items-center gap-3">
-                  <div className="w-6 h-6 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 font-bold text-[10px]">!</div>
-                  <div>
-                    <div className="text-xs font-bold text-gray-200">{err.code}</div>
-                    <div className="text-[10px] text-gray-500 truncate w-40">{err.title}</div>
+            {telemetry.errors.map((err, i) => {
+              const statusStyle = {
+                active:  { bg: 'bg-red-950/20',   border: 'border-red-900/30',   dot: 'bg-red-500',   label: 'АКТИВНА',      labelCls: 'text-red-400 bg-red-500/10' },
+                pending: { bg: 'bg-amber-950/20',  border: 'border-amber-900/30',  dot: 'bg-amber-400',  label: 'В ОЧІКУВАННІ', labelCls: 'text-amber-400 bg-amber-500/10' },
+                historic:{ bg: 'bg-gray-900/30',   border: 'border-gray-800',      dot: 'bg-gray-500',   label: 'АРХІВНА',      labelCls: 'text-gray-500 bg-gray-800' },
+              }[err.statusCategory || 'active'];
+
+              return (
+                <div key={i} onClick={() => navigate('/diagnostics', { state: { selectedError: err } })}
+                  className={`flex items-center justify-between ${statusStyle.bg} p-3 rounded-xl border ${statusStyle.border} cursor-pointer hover:brightness-125 transition-all shadow-sm`}>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${statusStyle.dot}`} />
+                    <div>
+                      <div className="text-xs font-bold text-gray-200">{err.code}</div>
+                      <div className="text-[10px] text-gray-500 truncate w-36">{err.title}</div>
+                      <div className="text-[9px] text-gray-600 mt-0.5">{err.desc}</div>
+                    </div>
                   </div>
+                  <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${statusStyle.labelCls}`}>
+                    {statusStyle.label}
+                  </span>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             <div className="flex gap-2 mt-4">
               <button disabled={!telemetry.isConnected || telemetry.isCheckingErrors} onClick={telemetry.scanErrors} className="flex-1 bg-gray-800/50 border border-gray-700 py-2.5 rounded-xl text-[10px] text-gray-400 hover:text-white disabled:opacity-30 transition-colors font-bold shadow-sm">ОНОВИТИ</button>
               <button disabled={!telemetry.isConnected || telemetry.isCheckingErrors} onClick={telemetry.clearErrors} className="flex-1 bg-red-950/50 border border-red-900/50 text-red-400 py-2.5 rounded-xl text-[10px] hover:bg-red-900 disabled:opacity-30 transition-colors font-bold shadow-sm">СТЕРТИ (04)</button>
@@ -890,7 +950,6 @@ export default function DashboardPage() {
         РОЗШИРЕНИЙ ЗВІТ ЕБУ (ІСТОРІЯ)
       </button>
 
-      {/* Віджет Динаміки з фільтрами */}
       <div className="bg-[#111318] p-4 rounded-2xl border border-gray-800 shadow-lg">
         <div className="flex justify-between items-center mb-4">
            <div className="flex items-center gap-2">
@@ -898,13 +957,17 @@ export default function DashboardPage() {
                <select 
                   className="bg-gray-900 border border-gray-700 text-[10px] text-white rounded px-2 py-1 outline-none focus:border-blue-500"
                   value={perfFilter}
-                  onChange={(e) => setPerfFilter(Number(e.target.value))}
-               >
-                  <option value={50}>0-50</option>
-                  <option value={100}>0-100</option>
-                  <option value={150}>0-150</option>
-                  <option value={200}>0-200</option>
-               </select>
+                  onChange={(e) => setPerfFilter(e.target.value)}
+                >
+                  <option value="0-50">0-50 км/год</option>
+                  <option value="50-100">50-100 км/год</option>
+                  <option value="0-100">0-100 км/год</option>
+                  <option value="100-200">100-200 км/год</option>
+                  <option value="0-200">0-200 км/год</option>
+                  <option value="60-130">60-130 км/год</option>
+                  <option value="1/4mi">1/4 mile</option>
+                  <option value="1/2mi">1/2 mile</option>
+                </select>
            </div>
            <span className="text-[9px] bg-red-900/30 text-red-400 px-2 py-1 rounded font-bold uppercase tracking-widest">PERFORMANCE</span>
         </div>
@@ -946,7 +1009,7 @@ export default function DashboardPage() {
 
         {filteredPerfRecords.length > 0 ? (
           <div>
-            <div className="text-[10px] text-gray-500 font-bold mb-2 uppercase">Рекорди 0-{perfFilter} км/год:</div>
+            <div className="text-[10px] text-gray-500 font-bold mb-2 uppercase">Рекорди ({perfFilter}):</div>
             <div className="flex gap-2 overflow-x-auto pb-2">
                {bestPerfRecord && (
                   <div onClick={() => setSelectedPerfRecord(bestPerfRecord)} className="flex-shrink-0 bg-green-900/20 border border-green-800/50 p-2 rounded-lg text-center w-24 cursor-pointer hover:bg-green-900/40 transition-colors">
@@ -969,12 +1032,11 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="text-center text-xs text-gray-600 py-2">
-             Немає замірів для швидкості {perfFilter} км/год
+             Немає замірів для швидкості {perfFilter}
           </div>
         )}
       </div>
 
-      {/* РОЗШИРЕНИЙ АНАЛІЗ ECU МОДАЛКА З ІСТОРІЄЮ */}
       {showAnalysisModal && (
         <div className="fixed inset-0 z-[110] bg-black/80 backdrop-blur-sm flex items-end md:items-center justify-center animate-in fade-in duration-200">
           <div className="bg-[#0b0c10] w-full md:w-3/4 max-w-2xl rounded-t-3xl md:rounded-3xl border border-gray-800 shadow-2xl h-[85vh] md:h-[70vh] flex flex-col animate-in slide-in-from-bottom-10">
@@ -1046,7 +1108,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ІСТОРІЯ ПОМИЛОК (DTC) МОДАЛКА */}
       {showErrorHistoryModal && (
          <div className="fixed inset-0 z-[115] bg-black/80 backdrop-blur-md flex items-end md:items-center justify-center animate-in fade-in p-4">
            <div className="bg-[#0b0c10] w-full max-w-2xl rounded-3xl border border-gray-800 shadow-2xl h-[70vh] flex flex-col animate-in zoom-in-95 overflow-hidden">
@@ -1073,10 +1134,24 @@ export default function DashboardPage() {
                          </div>
                        ) : (
                          report.data.map((err, i) => (
-                           <div key={i} onClick={() => navigate('/diagnostics', { state: { selectedError: err } })} className="flex items-center gap-3 bg-red-950/10 p-2 rounded-lg border border-red-900/20 cursor-pointer hover:bg-red-900/30 transition-colors">
-                             <div className="text-xs font-bold text-red-400">{err.code}</div>
-                             <div className="text-[10px] text-gray-400 truncate">{err.title}</div>
-                           </div>
+                           <div key={i} onClick={() => navigate('/diagnostics', { state: { selectedError: err } })}
+                              className={`flex items-center gap-3 p-2 rounded-lg border cursor-pointer transition-colors
+                                ${{ active: 'bg-red-950/10 border-red-900/20 hover:bg-red-900/30',
+                                    pending: 'bg-amber-950/10 border-amber-900/20 hover:bg-amber-900/30',
+                                    historic: 'bg-gray-900/20 border-gray-800 hover:bg-gray-800/50'
+                                  }[err.statusCategory || 'active']}`}>
+                              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0
+                                ${{ active: 'bg-red-500', pending: 'bg-amber-400', historic: 'bg-gray-500' }[err.statusCategory || 'active']}`} />
+                              <div className="text-xs font-bold text-gray-300">{err.code}</div>
+                              <div className="text-[10px] text-gray-500 truncate flex-1">{err.title}</div>
+                              <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0
+                                ${{ active: 'text-red-400 bg-red-500/10',
+                                    pending: 'text-amber-400 bg-amber-500/10',
+                                    historic: 'text-gray-500 bg-gray-800'
+                                  }[err.statusCategory || 'active']}`}>
+                                {{ active: 'АКТИВНА', pending: 'ОЧІК.', historic: 'АРХІВ' }[err.statusCategory || 'active']}
+                              </span>
+                            </div>
                          ))
                        )}
                      </div>
@@ -1088,7 +1163,6 @@ export default function DashboardPage() {
          </div>
       )}
 
-      {/* ПОВНОЕКРАННА МОДАЛКА ГРАФІКІВ */}
       {selectedGraph && (
         <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-200 p-4">
           <div className="bg-[#0b0c10] w-full max-w-3xl rounded-3xl border border-gray-800 shadow-2xl h-[75vh] flex flex-col animate-in zoom-in-95 overflow-hidden">
@@ -1108,15 +1182,14 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ДЕТАЛІ ЗАМІРУ 0-100 (МАРКЕРИ ШВИДКОСТІ В СПИСКУ) */}
       {selectedPerfRecord && (
         <div className="fixed inset-0 z-[130] bg-black/80 backdrop-blur-md flex items-end md:items-center justify-center animate-in fade-in p-4">
-           <div className="bg-[#0b0c10] w-full max-w-2xl rounded-3xl border border-gray-800 shadow-2xl h-[75vh] flex flex-col animate-in zoom-in-95 overflow-hidden">
+           <div className="bg-[#0b0c10] w-full max-w-2xl rounded-3xl border border-gray-800 shadow-2xl h-[85vh] flex flex-col animate-in zoom-in-95 overflow-hidden">
               <div className="p-5 border-b border-gray-800 flex justify-between items-center bg-[#111318]">
                  <div>
                     <h2 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2">
                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-                       Замір динаміки
+                       Деталі Заміру Динаміки
                     </h2>
                     <div className="text-[10px] text-gray-500 mt-1">{new Date(selectedPerfRecord.timestamp).toLocaleString('uk-UA')}</div>
                  </div>
@@ -1144,27 +1217,60 @@ export default function DashboardPage() {
                       const maxThrottle = Math.max(...runData.map(d => d.throttle));
                       const startTemp = runData[0].coolant;
 
+                      const maxGraphTime = runData[runData.length - 1].t || 1;
+                      const maxGraphSpeed = Math.max(...runData.map(d => d.speed), 100);
+                      
+                      const speedPoints = runData.map(d => `${(d.t / maxGraphTime) * 100},${100 - (d.speed / maxGraphSpeed) * 100}`).join(' ');
+
                       let m50 = false, m100 = false, m150 = false, m200 = false;
+                      const gridSteps = [0, 1, 2, 3, 4];
 
                       return (
                         <>
+                          <div className="bg-[#111318] p-4 rounded-xl border border-gray-800 mb-2">
+                            <div className="flex justify-between items-end mb-4">
+                              <h3 className="text-[10px] text-gray-500 font-bold uppercase">Графік Динаміки (Швидкість)</h3>
+                              <span className="text-xs text-blue-400 font-bold">Max: {Math.round(maxGraphSpeed)} км/год</span>
+                            </div>
+                            <div className="relative w-full h-40 border-l border-b border-gray-700">
+                              {gridSteps.map(step => (
+                                <div key={step} className="absolute left-[-25px] text-[8px] text-gray-500" style={{ bottom: `${(step / 4) * 100}%`, transform: 'translateY(50%)' }}>
+                                  {Math.round(maxGraphSpeed * (step / 4))}
+                                </div>
+                              ))}
+                              <svg viewBox="0 0 100 100" className="w-full h-full overflow-visible" preserveAspectRatio="none">
+                                <defs>
+                                  <linearGradient id="speedGrad" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.4"/>
+                                    <stop offset="100%" stopColor="#3b82f6" stopOpacity="0"/>
+                                  </linearGradient>
+                                </defs>
+                                {gridSteps.map(step => (
+                                  <line key={`grid-${step}`} x1="0" y1={100 - (step / 4) * 100} x2="100" y2={100 - (step / 4) * 100} stroke="#1f2937" strokeWidth="0.5" strokeDasharray="2,2" />
+                                ))}
+                                <polygon points={`0,100 ${speedPoints} 100,100`} fill="url(#speedGrad)" />
+                                <polyline fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points={speedPoints} />
+                              </svg>
+                            </div>
+                          </div>
+
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                             <div className="bg-[#111318] p-3 rounded-xl border border-gray-800">
+                              <div className="bg-[#111318] p-3 rounded-xl border border-gray-800">
                                 <div className="text-[9px] text-gray-500 uppercase">Макс Оберти</div>
                                 <div className="text-lg font-bold text-purple-400">{maxRpm} rpm</div>
-                             </div>
-                             <div className="bg-[#111318] p-3 rounded-xl border border-gray-800">
+                              </div>
+                              <div className="bg-[#111318] p-3 rounded-xl border border-gray-800">
                                 <div className="text-[9px] text-gray-500 uppercase">Пік Навантаження</div>
                                 <div className="text-lg font-bold text-orange-400">{maxLoad}%</div>
-                             </div>
-                             <div className="bg-[#111318] p-3 rounded-xl border border-gray-800">
+                              </div>
+                              <div className="bg-[#111318] p-3 rounded-xl border border-gray-800">
                                 <div className="text-[9px] text-gray-500 uppercase">Макс Дросель</div>
                                 <div className="text-lg font-bold text-blue-400">{maxThrottle}%</div>
-                             </div>
-                             <div className="bg-[#111318] p-3 rounded-xl border border-gray-800">
+                              </div>
+                              <div className="bg-[#111318] p-3 rounded-xl border border-gray-800">
                                 <div className="text-[9px] text-gray-500 uppercase">Темп на старті</div>
                                 <div className="text-lg font-bold text-green-400">{startTemp}°C</div>
-                             </div>
+                              </div>
                           </div>
 
                           <div>

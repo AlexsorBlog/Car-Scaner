@@ -141,36 +141,81 @@ export default function DiagnosticsPage() {
              />
           </svg>
 
-          <span className="text-4xl font-black text-white relative z-10">{hasErrors ? currentErrors.length : "0"}</span>
-          <span className="text-[9px] text-gray-400 font-bold tracking-widest mt-1 relative z-10">{hasErrors ? 'ПОМИЛКИ' : 'ЧИСТО'}</span>
+          <span className="text-4xl font-black text-white relative z-10">
+            {hasErrors ? currentErrors.filter(e => (e.statusCategory || 'active') === 'active').length : "0"}
+          </span>
+          <span className="text-[9px] text-gray-400 font-bold tracking-widest mt-1 relative z-10">
+            {hasErrors ? 'АКТИВНИХ' : 'ЧИСТО'}
+          </span>
         </div>
+        
       </div>
+      {hasErrors && (
+        <div className="flex justify-center gap-3 mt-3">
+          {currentErrors.filter(e => e.statusCategory === 'pending').length > 0 && (
+            <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-900/30 px-3 py-1 rounded-full">
+              <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+              <span className="text-[9px] font-bold text-amber-400">
+                {currentErrors.filter(e => e.statusCategory === 'pending').length} очікує
+              </span>
+            </div>
+          )}
+          {currentErrors.filter(e => e.statusCategory === 'historic').length > 0 && (
+            <div className="flex items-center gap-1.5 bg-gray-800 border border-gray-700 px-3 py-1 rounded-full">
+              <div className="w-1.5 h-1.5 rounded-full bg-gray-500" />
+              <span className="text-[9px] font-bold text-gray-400">
+                {currentErrors.filter(e => e.statusCategory === 'historic').length} архівних
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ERRORS LIST */}
       {hasErrors && (
         <div className="flex flex-col gap-4">
-          {currentErrors.map((error, index) => (
-            <div key={index} onClick={() => setSelectedError(error)} className="bg-[#111318] rounded-2xl p-5 border border-red-900/50 shadow-[0_8px_30px_rgba(0,0,0,0.5)] relative overflow-hidden cursor-pointer hover:bg-[#161922] transition-colors">
-              <div className="absolute top-0 left-0 w-1 h-full bg-red-500 shadow-[0_0_10px_#ef4444]"></div>
-              
-              <div className="flex justify-between items-start mb-3">
-                <span className="bg-blue-900/30 text-blue-400 border border-blue-800/50 px-2 py-0.5 rounded text-xs font-bold font-mono">
-                  {error.code}
-                </span>
-                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+          {currentErrors.map((error, index) => {
+            const cat = error.statusCategory || 'active';
+            const cardStyle = {
+              active:  { border: 'border-red-900/50',   bar: 'bg-red-500',   barGlow: 'shadow-[0_0_10px_#ef4444]',  icon: 'text-red-500',   badge: 'bg-red-500/10 text-red-400 border-red-800/50'  },
+              pending: { border: 'border-amber-900/40', bar: 'bg-amber-400', barGlow: 'shadow-[0_0_8px_#fbbf24]',   icon: 'text-amber-400', badge: 'bg-amber-500/10 text-amber-400 border-amber-800/50' },
+              historic:{ border: 'border-gray-700',     bar: 'bg-gray-600',  barGlow: '',                            icon: 'text-gray-500',  badge: 'bg-gray-800 text-gray-400 border-gray-700' },
+            }[cat];
+
+            const statusLabel = { active: 'АКТИВНА', pending: 'В ОЧІКУВАННІ', historic: 'АРХІВНА' }[cat];
+
+            return (
+              <div key={index} onClick={() => setSelectedError(error)}
+                className={`bg-[#111318] rounded-2xl p-5 border ${cardStyle.border} shadow-[0_8px_30px_rgba(0,0,0,0.5)] relative overflow-hidden cursor-pointer hover:bg-[#161922] transition-colors`}>
+                <div className={`absolute top-0 left-0 w-1 h-full ${cardStyle.bar} ${cardStyle.barGlow}`} />
+
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="bg-blue-900/30 text-blue-400 border border-blue-800/50 px-2 py-0.5 rounded text-xs font-bold font-mono">
+                      {error.code}
+                    </span>
+                    <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full border ${cardStyle.badge}`}>
+                      {statusLabel}
+                    </span>
+                  </div>
+                  <svg className={`w-5 h-5 ${cardStyle.icon}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                  </svg>
+                </div>
+
+                <h3 className="text-xl font-bold text-white mb-2">{error.title}</h3>
+                <p className="text-xs text-gray-400 mb-1 leading-relaxed line-clamp-2">
+                  {error.desc || "Специфічна помилка, що потребує додаткової перевірки."}
+                </p>
+                {error.cost && (
+                  <p className="text-[10px] text-blue-400/70 font-bold mb-3">Орієнтовна вартість: {error.cost}</p>
+                )}
+                <button className="w-full bg-gray-900 hover:bg-gray-800 text-gray-300 text-xs font-bold py-3 rounded-xl border border-gray-700 flex items-center justify-center gap-2 transition-all">
+                  ДЕТАЛЬНІШЕ
+                </button>
               </div>
-
-              <h3 className="text-xl font-bold text-white mb-2">{error.title}</h3>
-              
-              <p className="text-xs text-gray-400 mb-4 leading-relaxed line-clamp-2">
-                {error.desc || "Специфічна помилка, що потребує додаткової перевірки системами."}
-              </p>
-
-              <button className="w-full bg-gray-900 hover:bg-gray-800 text-gray-300 text-xs font-bold py-3 rounded-xl border border-gray-700 flex items-center justify-center gap-2 transition-all">
-                ДЕТАЛЬНІШЕ
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -183,8 +228,18 @@ export default function DiagnosticsPage() {
               <button onClick={() => setSelectedError(null)} className="text-gray-500 p-1 hover:text-white transition-colors">✕</button>
             </div>
             <div className="p-6">
-              <div className="w-12 h-12 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-4">
-                <span className="text-xl font-black text-red-500">{selectedError.code}</span>
+              <div className="flex flex-col items-center gap-2 mb-4">
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center border
+                  ${{ active: 'bg-red-500/10 border-red-500/20', pending: 'bg-amber-500/10 border-amber-500/20', historic: 'bg-gray-800 border-gray-700' }[selectedError.statusCategory || 'active']}`}>
+                  <span className={`text-lg font-black
+                    ${{ active: 'text-red-500', pending: 'text-amber-400', historic: 'text-gray-400' }[selectedError.statusCategory || 'active']}`}>
+                    {selectedError.code?.substring(0, 4)}
+                  </span>
+                </div>
+                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full
+                  ${{ active: 'text-red-400 bg-red-500/10', pending: 'text-amber-400 bg-amber-500/10', historic: 'text-gray-400 bg-gray-800' }[selectedError.statusCategory || 'active']}`}>
+                  {{ active: 'АКТИВНА', pending: 'В ОЧІКУВАННІ', historic: 'АРХІВНА' }[selectedError.statusCategory || 'active']}
+                </span>
               </div>
               <h3 className="text-center text-sm font-bold text-gray-200 mb-2">{selectedError.title}</h3>
               <p className="text-center text-xs text-gray-500 mb-6 px-4">{selectedError.desc || "Специфічна помилка, що потребує додаткової перевірки системами."}</p>
@@ -232,10 +287,24 @@ export default function DiagnosticsPage() {
                          <div className="text-xs text-gray-600 text-center py-2">Несправностей не виявлено</div>
                        ) : (
                          report.data.map((err, i) => (
-                           <div key={i} onClick={() => setSelectedError(err)} className="flex items-center gap-3 bg-red-950/10 p-2 rounded-lg border border-red-900/20 cursor-pointer hover:bg-red-900/30 transition-colors">
-                             <div className="text-xs font-bold text-red-400">{err.code}</div>
-                             <div className="text-[10px] text-gray-400 truncate">{err.title}</div>
-                           </div>
+                           <div key={i} onClick={() => { setSelectedError(err); setShowHistoryModal(false); }}
+                            className={`flex items-center gap-3 p-2 rounded-lg border cursor-pointer transition-colors
+                              ${{ active: 'bg-red-950/10 border-red-900/20 hover:bg-red-900/30',
+                                  pending: 'bg-amber-950/10 border-amber-900/20 hover:bg-amber-900/30',
+                                  historic: 'bg-gray-900/20 border-gray-800 hover:bg-gray-800/50'
+                                }[err.statusCategory || 'active']}`}>
+                            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0
+                              ${{ active: 'bg-red-500', pending: 'bg-amber-400', historic: 'bg-gray-500' }[err.statusCategory || 'active']}`} />
+                            <div className="text-xs font-bold text-gray-300 flex-shrink-0">{err.code}</div>
+                            <div className="text-[10px] text-gray-400 truncate flex-1">{err.title}</div>
+                            <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0
+                              ${{ active: 'text-red-400 bg-red-500/10',
+                                  pending: 'text-amber-400 bg-amber-500/10',
+                                  historic: 'text-gray-500 bg-gray-800'
+                                }[err.statusCategory || 'active']}`}>
+                              {{ active: 'АКТ', pending: 'ОЧК', historic: 'АРХ' }[err.statusCategory || 'active']}
+                            </span>
+                          </div>
                          ))
                        )}
                      </div>

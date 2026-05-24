@@ -19,6 +19,19 @@ const OBD_SERVICE_UUIDS = [
   '49535343-fe7d-4ae5-8fa9-9fafd205e455',
 ];
 
+// Common ELM327 / OBD-II adapter name prefixes.
+// Cheap clones often don't advertise service UUIDs during scan,
+// so name-based filtering is the only way to pre-filter the picker.
+const OBD_NAME_PREFIXES = [
+  'OBD', 'ELM', 'OBDII', 'OBD2',
+  'V-Link', 'VLink', 'KONNWEI',
+  'Viecar', 'Veepeak', 'ScanTool',
+  'Carista', 'LELink', 'Carly',
+  'TONWON', 'FIXD', 'BlueDriver',
+  'BLE_',   // some generic ELM327 firmware prefix
+  'IOS-',   // another common clone prefix
+];
+
 const WS_URL            = 'ws://localhost:8765';
 const CMD_TIMEOUT_MS    = 4000;   // per-command timeout
 const CONNECT_TIMEOUT_MS = 10000; // timeout for connection process
@@ -192,10 +205,32 @@ class BLEScanner {
   async _connectCapacitorBLE() {
     try {
       this._log('Initialising Capacitor Bluetooth…');
-      await BleClient.initialize();
-      this._log('Очікування вибору пристрою користувачем...');
-      
-      const device = await BleClient.requestDevice();
+      await BleClient.initialize();     
+      this._log('Очікування вибору пристрою...');
+      let device;
+      try {
+        // First try: show only known OBD service UUIDs
+        device = await BleClient.requestDevice({
+          optionalServices: OBD_SERVICE_UUIDS,
+          services: OBD_SERVICE_UUIDS,
+        });
+      } catch (err) {
+        if (err.message?.includes('cancelled') || err.message?.includes('User cancelled')) throw err;
+        // Adapter didn't advertise services — try name-based scan
+        this._log('Service filter found nothing, trying name filter…', 'WARN');
+        try {
+          device = await BleClient.requestDevice({
+            optionalServices: OBD_SERVICE_UUIDS,
+            namePrefix: 'OBD',
+          });
+        } catch {
+          // Last resort: full scan but we'll filter the list ourselves
+          this._log('Name filter found nothing, opening full scan…', 'WARN');
+          device = await BleClient.requestDevice({
+            optionalServices: OBD_SERVICE_UUIDS,
+          });
+        }
+      }
       this._deviceId = device.deviceId;
       this._log(`Connecting to ${device.name ?? device.deviceId}…`);
 
@@ -266,9 +301,14 @@ class BLEScanner {
       if (!navigator.bluetooth) throw new Error('Web Bluetooth API not supported in this browser');
 
       const device = await navigator.bluetooth.requestDevice({
-        acceptAllDevices: true,
-        optionalServices: OBD_SERVICE_UUIDS
-      });
+      filters: [
+        // Filter by known OBD service UUIDs (best — works on proper adapters)
+        ...OBD_SERVICE_UUIDS.map(uuid => ({ services: [uuid] })),
+        // Filter by common ELM327 adapter name prefixes (fallback for cheap clones)
+        ...OBD_NAME_PREFIXES.map(prefix => ({ namePrefix: prefix })),
+      ],
+      optionalServices: OBD_SERVICE_UUIDS,  // still request access to all services
+    });
 
       this._webDevice = device;
       this._log(`Connecting to Web BT: ${device.name}…`);

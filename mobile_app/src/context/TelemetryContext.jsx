@@ -96,6 +96,7 @@ export function TelemetryProvider({ children }) {
   const lastDbSave     = useRef(0);
   const tickCount      = useRef(0);
 
+
   // ── Auth guard ──────────────────────────────────────────────────────────────
 
   const requireAuth = useCallback(() => {
@@ -306,15 +307,25 @@ export function TelemetryProvider({ children }) {
 
       const finalErrors = result.codes.map(codeItem => {
         const baseCode = codeItem.base;
+        const statusCategory = _dtcStatusCategory(codeItem.statusByte ?? null);
+
         return {
-          code: codeItem.code, 
-          title: codeItem.title, 
-          // Show the user exactly which ECU method found the code
-          desc: `Протокол: ${codeItem.variant || result.variant}`, 
-          severity: _classifyDtcSeverity(baseCode),
-          cost: _estimateDtcCost(baseCode),
+          code:           codeItem.code,
+          title:          codeItem.title,
+          desc:           `Протокол: ${codeItem.variant || result.variant}`,
+          severity:       _classifyDtcSeverity(baseCode),
+          cost:           _estimateDtcCost(baseCode),
+          statusCategory, // 'active' | 'pending' | 'historic'  ← new
+          statusByte:     codeItem.statusByte ?? null,           // raw, for debugging
         };
       });
+
+      // Optional: log how many of each category we got — useful for tuning
+      const counts = finalErrors.reduce((acc, e) => {
+        acc[e.statusCategory] = (acc[e.statusCategory] || 0) + 1;
+        return acc;
+      }, {});
+      console.log('[Telemetry] DTC categories:', counts);
 
       setData(prev => ({
         ...prev,
@@ -449,6 +460,13 @@ function _classifyDtcSeverity(code) {
   // P01xx/P02xx = fuel/air — medium
   if (prefix === 'P01' || prefix === 'P02') return 'Середній';
   return 'Низький';
+}
+
+function _dtcStatusCategory(statusByte) {
+  if (statusByte === null || statusByte === undefined) return 'active'; // non-UDS source
+  if (statusByte & 0x01) return 'active';   // bit 0 — test failed
+  if (statusByte & 0x04) return 'pending';  // bit 2 — pending DTC
+  return 'historic';                         // confirmed but not currently failing
 }
 
 function _estimateDtcCost(code) {
