@@ -43,6 +43,178 @@ const get24hData = (dataArray) => {
   return dataArray.filter(d => d.t >= cutoff);
 };
 
+const DragyStyleChart = ({ runData }) => {
+  const containerRef = useRef(null)
+  const [hoverIndex, setHoverIndex] = useState(null)
+  const [zoomScale, setZoomScale] = useState(1)
+  const [panOffset, setPanOffset] = useState(0)
+  const [isDragging, setIsDragging] = useState(false)
+  const dragStartX = useRef(0)
+
+  const enrichedData = useMemo(() => {
+    if (!runData || runData.length === 0) return []
+    
+    let dist = 0
+    const dataWithMetrics = runData.map((pt, i) => {
+      if (i === 0) return { ...pt, dist: 0, accelG: 0 }
+      
+      const prev = runData[i - 1]
+      const dtSec = (pt.t - prev.t) / 1000
+      const v1Ms = prev.speed / 3.6
+      const v2Ms = pt.speed / 3.6
+      
+      const dv = v2Ms - v1Ms
+      const a = dtSec > 0 ? dv / dtSec : 0
+      const accelG = a / 9.81
+      
+      dist += (v1Ms * dtSec) + (0.5 * a * dtSec * dtSec)
+      
+      return { ...pt, dist, accelG }
+    })
+
+    return dataWithMetrics.map((pt, i, arr) => {
+      if (i === 0 || i === arr.length - 1) return pt
+      const avgG = (arr[i - 1].accelG + pt.accelG + arr[i + 1].accelG) / 3
+      return { ...pt, accelG: avgG }
+    })
+  }, [runData])
+
+  if (enrichedData.length === 0) return null
+
+  const maxTime = enrichedData[enrichedData.length - 1].t || 1
+  const maxSpeed = Math.max(...enrichedData.map(d => d.speed), 100)
+  const maxDist = Math.max(...enrichedData.map(d => d.dist), 10)
+  const maxG = 1.5
+  const minG = -0.5
+
+  const speedPoints = enrichedData.map(d => `${(d.t / maxTime) * 100},${100 - (d.speed / maxSpeed) * 100}`).join(' ')
+  const accelPoints = enrichedData.map(d => {
+    const clampedG = Math.max(minG, Math.min(maxG, d.accelG))
+    const normalizedG = (clampedG - minG) / (maxG - minG)
+    return `${(d.t / maxTime) * 100},${100 - (normalizedG * 100)}`
+  }).join(' ')
+  const distPoints = enrichedData.map(d => `${(d.t / maxTime) * 100},${100 - (d.dist / maxDist) * 100}`).join(' ')
+
+  const handlePointerMove = (e) => {
+    if (!containerRef.current) return
+    const rect = containerRef.current.getBoundingClientRect()
+    const xPos = e.clientX || (e.touches && e.touches[0].clientX)
+    if (!xPos) return
+    
+    const xPct = Math.max(0, Math.min(1, (xPos - rect.left) / rect.width))
+    const visibleXPct = (xPct / zoomScale) + (panOffset / 100)
+    const targetTime = visibleXPct * maxTime
+
+    let closestIdx = 0
+    let minDiff = Infinity
+    enrichedData.forEach((d, i) => {
+      const diff = Math.abs(d.t - targetTime)
+      if (diff < minDiff) {
+        minDiff = diff
+        closestIdx = i
+      }
+    })
+    setHoverIndex(closestIdx)
+  }
+
+  const handlePointerLeave = () => setHoverIndex(null)
+
+  const activePoint = hoverIndex !== null ? enrichedData[hoverIndex] : null
+
+  return (
+    <div className="bg-[#111318] p-4 rounded-xl border border-gray-800 mb-2 flex flex-col gap-2">
+      <div className="flex justify-between items-center">
+        <div className="flex gap-4">
+          <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span><span className="text-[10px] text-gray-400 font-bold">Speed (km/h)</span></div>
+          <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-[10px] text-gray-400 font-bold">Dist (m)</span></div>
+          <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-500"></span><span className="text-[10px] text-gray-400 font-bold">Accel (G)</span></div>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setZoomScale(Math.max(1, zoomScale - 0.5))} className="px-2 py-1 bg-gray-900 rounded text-xs border border-gray-700">-</button>
+          <span className="text-xs font-bold text-gray-500 flex items-center">{zoomScale}x</span>
+          <button onClick={() => setZoomScale(Math.min(5, zoomScale + 0.5))} className="px-2 py-1 bg-gray-900 rounded text-xs border border-gray-700">+</button>
+        </div>
+      </div>
+
+      <div 
+        ref={containerRef}
+        className="relative w-full h-56 border-l border-b border-gray-700 cursor-crosshair overflow-hidden touch-none"
+        onMouseMove={handlePointerMove}
+        onTouchMove={handlePointerMove}
+        onMouseLeave={handlePointerLeave}
+        onTouchEnd={handlePointerLeave}
+      >
+        <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full" preserveAspectRatio="none" style={{ transform: `scaleX(${zoomScale}) translateX(${-panOffset}%)`, transformOrigin: 'left' }}>
+          {[0, 1, 2, 3, 4].map(step => (
+            <line key={`grid-y-${step}`} x1="0" y1={100 - (step / 4) * 100} x2="100" y2={100 - (step / 4) * 100} stroke="#1f2937" strokeWidth="0.5" strokeDasharray="1,1" />
+          ))}
+          {[1, 2, 3, 4, 5].map(step => (
+            <line key={`grid-x-${step}`} x1={(step / 5) * 100} y1="0" x2={(step / 5) * 100} y2="100" stroke="#1f2937" strokeWidth="0.5" strokeDasharray="1,1" />
+          ))}
+
+          <polyline fill="none" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" points={distPoints} opacity="0.6" />
+          <polyline fill="none" stroke="#f97316" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" points={accelPoints} opacity="0.8" />
+          <polyline fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={speedPoints} />
+
+          {hoverIndex !== null && (
+             <line 
+                x1={(activePoint.t / maxTime) * 100} 
+                y1="0" 
+                x2={(activePoint.t / maxTime) * 100} 
+                y2="100" 
+                stroke="#fff" 
+                strokeWidth="0.5" 
+                strokeDasharray="2,2" 
+             />
+          )}
+        </svg>
+
+        <div className="absolute left-[-25px] flex flex-col justify-between h-full py-1 pointer-events-none">
+           <span className="text-[8px] text-blue-500 font-bold">{Math.round(maxSpeed)}</span>
+           <span className="text-[8px] text-blue-500 font-bold">{Math.round(maxSpeed/2)}</span>
+           <span className="text-[8px] text-blue-500 font-bold">0</span>
+        </div>
+        <div className="absolute right-[-25px] flex flex-col justify-between h-full py-1 pointer-events-none">
+           <span className="text-[8px] text-orange-500 font-bold">+{maxG}g</span>
+           <span className="text-[8px] text-orange-500 font-bold">0g</span>
+           <span className="text-[8px] text-orange-500 font-bold">{minG}g</span>
+        </div>
+
+        {activePoint && (
+          <div 
+            className="absolute top-2 bg-gray-900/90 border border-gray-700 p-2 rounded-lg shadow-xl pointer-events-none z-10 backdrop-blur-sm"
+            style={{ 
+              left: `${((activePoint.t / maxTime) * 100 * zoomScale) - (panOffset * zoomScale)}%`, 
+              transform: `translateX(${((activePoint.t / maxTime) > 0.5) ? '-110%' : '10%'})` 
+            }}
+          >
+            <div className="text-[10px] text-white font-mono font-bold mb-1 border-b border-gray-700 pb-1">
+              Time: {(activePoint.t / 1000).toFixed(2)}s
+            </div>
+            <div className="flex justify-between gap-4 text-[10px]">
+              <span className="text-gray-400">Speed:</span>
+              <span className="text-blue-400 font-bold">{Math.round(activePoint.speed)} km/h</span>
+            </div>
+            <div className="flex justify-between gap-4 text-[10px]">
+              <span className="text-gray-400">Accel:</span>
+              <span className="text-orange-400 font-bold">{activePoint.accelG.toFixed(2)} G</span>
+            </div>
+            <div className="flex justify-between gap-4 text-[10px]">
+              <span className="text-gray-400">Dist:</span>
+              <span className="text-green-400 font-bold">{Math.round(activePoint.dist)} m</span>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="flex justify-between text-[9px] text-gray-500 font-mono mt-1 px-1">
+         <span>0.0s</span>
+         <span>{(maxTime/2000).toFixed(1)}s</span>
+         <span>{(maxTime/1000).toFixed(1)}s</span>
+      </div>
+    </div>
+  )
+}
+
 const MiniGraph = ({ data, color, label, unit, onClick }) => {
   if (!data || data.length === 0) return (
     <div className="flex flex-col bg-[#111318] p-3 rounded-xl border border-gray-800">
@@ -1227,32 +1399,8 @@ export default function DashboardPage() {
 
                       return (
                         <>
-                          <div className="bg-[#111318] p-4 rounded-xl border border-gray-800 mb-2">
-                            <div className="flex justify-between items-end mb-4">
-                              <h3 className="text-[10px] text-gray-500 font-bold uppercase">Графік Динаміки (Швидкість)</h3>
-                              <span className="text-xs text-blue-400 font-bold">Max: {Math.round(maxGraphSpeed)} км/год</span>
-                            </div>
-                            <div className="relative w-full h-40 border-l border-b border-gray-700">
-                              {gridSteps.map(step => (
-                                <div key={step} className="absolute left-[-25px] text-[8px] text-gray-500" style={{ bottom: `${(step / 4) * 100}%`, transform: 'translateY(50%)' }}>
-                                  {Math.round(maxGraphSpeed * (step / 4))}
-                                </div>
-                              ))}
-                              <svg viewBox="0 0 100 100" className="w-full h-full overflow-visible" preserveAspectRatio="none">
-                                <defs>
-                                  <linearGradient id="speedGrad" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.4"/>
-                                    <stop offset="100%" stopColor="#3b82f6" stopOpacity="0"/>
-                                  </linearGradient>
-                                </defs>
-                                {gridSteps.map(step => (
-                                  <line key={`grid-${step}`} x1="0" y1={100 - (step / 4) * 100} x2="100" y2={100 - (step / 4) * 100} stroke="#1f2937" strokeWidth="0.5" strokeDasharray="2,2" />
-                                ))}
-                                <polygon points={`0,100 ${speedPoints} 100,100`} fill="url(#speedGrad)" />
-                                <polyline fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points={speedPoints} />
-                              </svg>
-                            </div>
-                          </div>
+                          // Замініть цей блок у модалці:
+                          <DragyStyleChart runData={runData} />
 
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                               <div className="bg-[#111318] p-3 rounded-xl border border-gray-800">
