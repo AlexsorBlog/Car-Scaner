@@ -127,12 +127,65 @@ class OBDManager {
     }
   }
 
-  // 🔥 NEW WATERFALL DTC SCANNER
+  async getSmartFuelRate() {
+    let cmdFuelRate = this.commands['FUEL_RATE'];
+    if (!cmdFuelRate) {
+      cmdFuelRate = { command: '015E', bytes: 2, decoder: (hex) => (parseInt(hex.substring(0,2), 16) * 256 + parseInt(hex.substring(2,4), 16)) * 0.05, unit: 'л/год', name: 'FUEL_RATE' };
+    }
+    const directFuelRate = await this.query(cmdFuelRate);
+
+    if (directFuelRate && directFuelRate.value !== null && directFuelRate.value !== 'NO DATA' && directFuelRate.value !== 'ERROR') {
+      return directFuelRate;
+    }
+
+    let cmdMaf = this.commands['MAF'];
+    if (!cmdMaf) {
+      cmdMaf = { command: '0110', bytes: 2, decoder: (hex) => (parseInt(hex.substring(0,2), 16) * 256 + parseInt(hex.substring(2,4), 16)) / 100, unit: 'г/с', name: 'MAF' };
+    }
+    const mafData = await this.query(cmdMaf);
+
+    if (mafData && mafData.value !== null && mafData.value !== 'NO DATA' && mafData.value !== 'ERROR') {
+      const mafValue = parseFloat(mafData.value);
+
+      let cmdFuelType = this.commands['FUEL_TYPE'];
+      if (!cmdFuelType) {
+        cmdFuelType = { command: '0151', bytes: 1, decoder: (hex) => parseInt(hex.substring(0,2), 16), unit: '', name: 'FUEL_TYPE' };
+      }
+      const fuelTypeData = await this.query(cmdFuelType);
+      
+      let fuelId = 1;
+      if (fuelTypeData && fuelTypeData.value !== null && !isNaN(fuelTypeData.value)) {
+        fuelId = parseInt(fuelTypeData.value, 10);
+      }
+
+      const FUEL_CONSTANTS = {
+        1: { afr: 14.7, density: 820 },
+        4: { afr: 14.5, density: 850 },
+        8: { afr: 15.5, density: 540 },
+        9: { afr: 17.2, density: 128 },
+        23: { afr: 9.0, density: 789 },
+        DEFAULT: { afr: 14.7, density: 820 }
+      };
+
+      const fuelProfile = FUEL_CONSTANTS[fuelId] || FUEL_CONSTANTS.DEFAULT;
+      const lph = (mafValue * 3600) / (fuelProfile.afr * fuelProfile.density);
+
+      return {
+        value: lph.toFixed(1),
+        unit: 'л/год',
+        raw: 'CALC',
+        name: 'FUEL_RATE',
+        desc: 'Витрата палива'
+      };
+    }
+
+    return { value: '--', unit: 'л/год', raw: '', name: 'FUEL_RATE', desc: 'Витрата палива' };
+  }
+
   async smartReadDTC(dtcDictionary = {}) {
     const allCodes = new Map();
     const usedVariants = [];
 
-    // Master list of every single way to ask a car for codes
     const methods = [
       { cmd: '190209', dec: decoders.dtc_uds, isUds: true,  name: 'UDS 09' },
       { cmd: '190208', dec: decoders.dtc_uds, isUds: true,  name: 'UDS 08' },
@@ -146,7 +199,6 @@ class OBDManager {
       { cmd: '1802FF00', dec: decoders.dtc_kwp, isUds: false, name: 'KWP FF' }
     ];
 
-    // Run ALL methods, do not stop if one is empty
     for (const method of methods) {
       const result = await this._executeRawDTC(method.cmd, method.dec);
       
@@ -156,19 +208,17 @@ class OBDManager {
         for (const item of result) {
           const baseCode = method.isUds ? item.base : item;
           
-          // 🔥 FATAL FILTER: Hard-delete ghost codes caused by J1979 ECU padding
           if (['P0000', 'C0300', 'C0700', 'C0A00'].includes(baseCode)) continue;
           
           const isKnown = !!dtcDictionary[baseCode];
           
-          // Only add if it's new, or if this version is known in our database
           if (!allCodes.has(baseCode) || (isKnown && !allCodes.get(baseCode).isKnown)) {
             allCodes.set(baseCode, {
               code: method.isUds ? item.full : item,
               base: baseCode,
               isKnown: isKnown,
               variant: method.name,
-              statusByte: method.isUds ? (item.statusByte ?? null) : null, // ← new
+              statusByte: method.isUds ? (item.statusByte ?? null) : null,
             });
             addedNew = true;
           }
@@ -190,10 +240,9 @@ class OBDManager {
       desc: "Знайдено в базі",
       base: item.base,
       variant: item.variant,
-      statusByte: item.statusByte ?? null, // ← new
+      statusByte: item.statusByte ?? null,
     }));
 
-    // Sort: Push recognized errors to the top of the list
     finalCodes.sort((a, b) => {
       const aKnown = !!dtcDictionary[a.base];
       const bKnown = !!dtcDictionary[b.base];
@@ -229,14 +278,13 @@ class OBDManager {
 
       for (let line of lines) {
         if (!line) continue;
-        line = line.replace(/^[0-9A-F]:/, ''); // Remove CAN PCI frames
+        line = line.replace(/^[0-9A-F]:/, '');
         fullHexPayload += line;
       }
 
       let hexData = "";
       let prefixFound = false;
 
-      // 🔥 BUGFIX: Smart string alignment to prevent ELM327 multi-ECU shift
       if (cmd === '03' || cmd === '07' || cmd === '0A') {
         const expectedPrefix = '4' + cmd.charAt(1);
         
@@ -246,10 +294,9 @@ class OBDManager {
         while (idx !== -1) {
           let nextIdx = fullHexPayload.indexOf(expectedPrefix, idx + 2);
           let ecuPayload = nextIdx !== -1 
-             ? fullHexPayload.substring(idx + 2, nextIdx) 
-             : fullHexPayload.substring(idx + 2);
-             
-          // If the payload has an odd count byte, strip it to realign to 4
+              ? fullHexPayload.substring(idx + 2, nextIdx) 
+              : fullHexPayload.substring(idx + 2);
+              
           if (ecuPayload.length % 4 !== 0) {
              ecuPayload = ecuPayload.substring(2);
           }
@@ -261,7 +308,7 @@ class OBDManager {
         }
       } else if (cmd.startsWith('19') || cmd.startsWith('18')) {
         prefixFound = true; 
-        hexData = fullHexPayload; // KWP and UDS decoders handle this internally
+        hexData = fullHexPayload;
       }
 
       if (!prefixFound) return null; 

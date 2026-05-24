@@ -48,7 +48,7 @@ import dtcDictionary                    from '../obd/codes.json';
  * Anything not listed falls into "slow".
  */
 const FAST_PIDS   = new Set(['SPEED', 'RPM', 'COOLANT_TEMP', 'THROTTLE_POS']);
-const MEDIUM_PIDS = new Set(['ENGINE_LOAD', 'INTAKE_TEMP', 'FUEL_RATE', 'MAF',
+const MEDIUM_PIDS = new Set(['ENGINE_LOAD', 'INTAKE_TEMP', 'FUEL_RATE', 'MAF', 'FUEL_TYPE',
                               'BAROMETRIC_PRESSURE', 'CONTROL_MODULE_VOLTAGE']);
 
 // History window kept in memory
@@ -199,13 +199,21 @@ export function TelemetryProvider({ children }) {
         if (!isFast &&  isMedium && tick % 10  !== 0) continue;
 
         try {
-          const res = await obd.query(cmdObj);
-          if (res?.value != null) {
+          let res;
+          
+          // 🔥 NEW: Use the smart fallback specifically for fuel rate
+          if (cmdId === 'FUEL_RATE') {
+             res = await obd.getSmartFuelRate();
+          } else {
+             res = await obd.query(cmdObj);
+          }
+
+          if (res?.value != null && res.value !== '--') {
             cycleMetrics[cmdId] = res;
             if (cmdId === 'SPEED')        cycleTopLevel.speed = res.value;
             if (cmdId === 'RPM')          cycleTopLevel.rpm   = res.value;
             if (cmdId === 'COOLANT_TEMP') cycleTopLevel.temp  = res.value;
-            if (cmdId === 'FUEL_RATE') cycleTopLevel.fuel = res.value;
+            if (cmdId === 'FUEL_RATE')    cycleTopLevel.fuel  = res.value;
           }
         } catch (err) {
           console.warn(`[Telemetry] query error ${cmdId}:`, err.message);

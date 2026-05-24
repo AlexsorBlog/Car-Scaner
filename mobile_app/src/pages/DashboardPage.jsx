@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { Capacitor } from '@capacitor/core';
 import { useTelemetry } from '../context/TelemetryContext.jsx';
 import { obdScanner, TRANSPORT } from '../services/bleService.js'; 
@@ -125,9 +125,9 @@ const DragyStyleChart = ({ runData }) => {
     <div className="bg-[#111318] p-4 rounded-xl border border-gray-800 mb-2 flex flex-col gap-2">
       <div className="flex justify-between items-center">
         <div className="flex gap-4">
-          <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span><span className="text-[10px] text-gray-400 font-bold">Speed (km/h)</span></div>
-          <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-[10px] text-gray-400 font-bold">Dist (m)</span></div>
-          <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-500"></span><span className="text-[10px] text-gray-400 font-bold">Accel (G)</span></div>
+          <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span><span className="text-[10px] text-gray-400 font-bold">Швидк. (км/год)</span></div>
+          <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-[10px] text-gray-400 font-bold">Дист. (м)</span></div>
+          <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-500"></span><span className="text-[10px] text-gray-400 font-bold">Приск. (G)</span></div>
         </div>
         <div className="flex gap-2">
           <button onClick={() => setZoomScale(Math.max(1, zoomScale - 0.5))} className="px-2 py-1 bg-gray-900 rounded text-xs border border-gray-700">-</button>
@@ -189,27 +189,27 @@ const DragyStyleChart = ({ runData }) => {
             }}
           >
             <div className="text-[10px] text-white font-mono font-bold mb-1 border-b border-gray-700 pb-1">
-              Time: {(activePoint.t / 1000).toFixed(2)}s
+              Час: {(activePoint.t / 1000).toFixed(2)} с
             </div>
             <div className="flex justify-between gap-4 text-[10px]">
-              <span className="text-gray-400">Speed:</span>
-              <span className="text-blue-400 font-bold">{Math.round(activePoint.speed)} km/h</span>
+              <span className="text-gray-400">Швидкість:</span>
+              <span className="text-blue-400 font-bold">{Math.round(activePoint.speed)} км/год</span>
             </div>
             <div className="flex justify-between gap-4 text-[10px]">
-              <span className="text-gray-400">Accel:</span>
+              <span className="text-gray-400">Прискорення:</span>
               <span className="text-orange-400 font-bold">{activePoint.accelG.toFixed(2)} G</span>
             </div>
             <div className="flex justify-between gap-4 text-[10px]">
-              <span className="text-gray-400">Dist:</span>
-              <span className="text-green-400 font-bold">{Math.round(activePoint.dist)} m</span>
+              <span className="text-gray-400">Дистанція:</span>
+              <span className="text-green-400 font-bold">{Math.round(activePoint.dist)} м</span>
             </div>
           </div>
         )}
       </div>
       <div className="flex justify-between text-[9px] text-gray-500 font-mono mt-1 px-1">
-         <span>0.0s</span>
-         <span>{(maxTime/2000).toFixed(1)}s</span>
-         <span>{(maxTime/1000).toFixed(1)}s</span>
+         <span>0.0с</span>
+         <span>{(maxTime/2000).toFixed(1)}с</span>
+         <span>{(maxTime/1000).toFixed(1)}с</span>
       </div>
     </div>
   )
@@ -1126,7 +1126,7 @@ export default function DashboardPage() {
         <div className="flex justify-between items-center mb-4">
            <div className="flex items-center gap-2">
                <h3 className="text-xs font-bold tracking-wide text-gray-300 uppercase">Динаміка</h3>
-               <select 
+              <select 
                   className="bg-gray-900 border border-gray-700 text-[10px] text-white rounded px-2 py-1 outline-none focus:border-blue-500"
                   value={perfFilter}
                   onChange={(e) => setPerfFilter(e.target.value)}
@@ -1137,8 +1137,8 @@ export default function DashboardPage() {
                   <option value="100-200">100-200 км/год</option>
                   <option value="0-200">0-200 км/год</option>
                   <option value="60-130">60-130 км/год</option>
-                  <option value="1/4mi">1/4 mile</option>
-                  <option value="1/2mi">1/2 mile</option>
+                  <option value="1/4mi">1/4 милі (402 м)</option>
+                  <option value="1/2mi">1/2 милі (804 м)</option>
                 </select>
            </div>
            <span className="text-[9px] bg-red-900/30 text-red-400 px-2 py-1 rounded font-bold uppercase tracking-widest">PERFORMANCE</span>
@@ -1399,7 +1399,6 @@ export default function DashboardPage() {
 
                       return (
                         <>
-                          // Замініть цей блок у модалці:
                           <DragyStyleChart runData={runData} />
 
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
