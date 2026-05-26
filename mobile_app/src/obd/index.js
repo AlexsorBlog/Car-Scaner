@@ -94,13 +94,21 @@ class OBDManager {
     if (MODE_NO_PID.has(modeHex)) {
       const prefixIdx = clean.indexOf(replyMode);
       if (prefixIdx === -1) return null;
-      hexData = clean.substring(prefixIdx + 2); 
+      // Find next occurrence to bound the slice (multi-ECU guard)
+      const nextIdx = clean.indexOf(replyMode, prefixIdx + 2);
+      hexData = nextIdx !== -1
+        ? clean.substring(prefixIdx + 2, nextIdx)
+        : clean.substring(prefixIdx + 2);
     } else {
-      const pidHex  = cmdObj.command.substring(2).toUpperCase();
-      const prefix  = replyMode + pidHex;
+      const pidHex    = cmdObj.command.substring(2).toUpperCase();
+      const prefix    = replyMode + pidHex;
       const prefixIdx = clean.indexOf(prefix);
       if (prefixIdx === -1) return null;
-      hexData = clean.substring(prefixIdx + prefix.length);
+      // Stop at next occurrence of the same prefix (next ECU's response)
+      const nextIdx = clean.indexOf(prefix, prefixIdx + prefix.length);
+      hexData = nextIdx !== -1
+        ? clean.substring(prefixIdx + prefix.length, nextIdx)
+        : clean.substring(prefixIdx + prefix.length);
     }
 
     if (hexData === '' && cmdObj.bytes === 0) {
@@ -208,7 +216,18 @@ class OBDManager {
         for (const item of result) {
           const baseCode = method.isUds ? item.base : item;
           
-          if (['P0000', 'C0300', 'C0700', 'C0A00'].includes(baseCode)) continue;
+          // Structural ghosts: ECU padding, all-zero codes, known false positives
+          const GHOST_CODES = new Set([
+            'P0000', 'C0000', 'B0000', 'U0000',
+            'C0300', 'C0700', 'C0A00',
+            'P0AAA', // some ELM327 clones emit these on init
+          ]);
+
+          if (GHOST_CODES.has(baseCode)) continue;
+
+          // Also drop codes where the numeric part is all zeros or all F's — always padding
+          const numericPart = baseCode.substring(1);
+          if (numericPart === '0000' || numericPart === 'FFFF') continue;
           
           const isKnown = !!dtcDictionary[baseCode];
           
@@ -315,8 +334,16 @@ class OBDManager {
 
       const decoded = decoderFunc(hexData || "");
       if (Array.isArray(decoded)) {
-        if (decoded.length > 0) saveRawLog('DTC_DECODED', cmd, JSON.stringify(decoded));
-        return decoded; 
+        // Deduplicate — multi-ECU responses repeat the same codes
+        const seen    = new Set();
+        const unique  = decoded.filter(item => {
+          const key = typeof item === 'object' ? item.base : item;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        if (unique.length > 0) saveRawLog('DTC_DECODED', cmd, JSON.stringify(unique));
+        return unique;
       }
 
       return null;

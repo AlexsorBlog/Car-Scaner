@@ -313,18 +313,25 @@ export function TelemetryProvider({ children }) {
       const result = await obd.smartReadDTC(dtcDictionary);
       console.log(`[OBD] Сканування завершено. ${result.variant}`);
 
-      const finalErrors = result.codes.map(codeItem => {
+      const finalErrors = result.codes
+      // ── STRICT FILTER: only show codes that exist in our dictionary ──────────
+      .filter(codeItem => {
+        const known = !!dtcDictionary[codeItem.base];
+        if (!known) {
+          console.log(`[DTC] Dropping unknown code: ${codeItem.base} (not in dictionary)`);
+        }
+        return known;
+      })
+      .map(codeItem => {
         const baseCode = codeItem.base;
-        const statusCategory = _dtcStatusCategory(codeItem.statusByte ?? null);
-
         return {
           code:           codeItem.code,
           title:          codeItem.title,
           desc:           `Протокол: ${codeItem.variant || result.variant}`,
           severity:       _classifyDtcSeverity(baseCode),
           cost:           _estimateDtcCost(baseCode),
-          statusCategory, // 'active' | 'pending' | 'historic'  ← new
-          statusByte:     codeItem.statusByte ?? null,           // raw, for debugging
+          statusCategory: _dtcStatusCategory(codeItem.statusByte ?? null),
+          statusByte:     codeItem.statusByte ?? null,
         };
       });
 

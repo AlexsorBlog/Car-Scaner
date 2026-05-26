@@ -50,6 +50,10 @@ const DragyStyleChart = ({ runData }) => {
   const [panOffset, setPanOffset] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
   const dragStartX = useRef(0)
+  const initialPinchDist = useRef(null)
+  const initialScale = useRef(1)
+  const initialPan = useRef(0)
+  const initialCenterPct = useRef(0)
 
   const enrichedData = useMemo(() => {
     if (!runData || runData.length === 0) return []
@@ -119,6 +123,54 @@ const DragyStyleChart = ({ runData }) => {
 
   const handlePointerLeave = () => setHoverIndex(null)
 
+  const handleTouchStart = (e) => {
+    if (e.touches.length === 2 && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect()
+      const t1 = e.touches[0], t2 = e.touches[1]
+      initialPinchDist.current = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY)
+      initialScale.current = zoomScale
+      initialPan.current = panOffset
+      initialCenterPct.current = ((t1.clientX + t2.clientX) / 2 - rect.left) / rect.width
+    }
+  }
+
+  const handleTouchMove = (e) => {
+    if (e.touches.length === 2 && containerRef.current && initialPinchDist.current) {
+      const rect = containerRef.current.getBoundingClientRect()
+      const t1 = e.touches[0], t2 = e.touches[1]
+      const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY)
+      const currentCenterPct = ((t1.clientX + t2.clientX) / 2 - rect.left) / rect.width
+
+      // Розрахунок нового масштабу (ліміт від 1x до 10x)
+      const newScale = Math.max(1, Math.min(10, initialScale.current * (dist / initialPinchDist.current)))
+
+      // Розрахунок зміщення (pan), щоб зум йшов рівно в центр між пальцями
+      let newPan = (initialCenterPct.current / initialScale.current + initialPan.current / 100 - currentCenterPct / newScale) * 100
+      
+      // Забороняємо виходити за краї графіка
+      const maxPan = ((newScale - 1) / newScale) * 100
+      newPan = Math.max(0, Math.min(newPan, maxPan))
+
+      setZoomScale(newScale)
+      setPanOffset(newPan)
+    } else if (e.touches.length === 1) {
+      handlePointerMove(e)
+    }
+  }
+
+  const handleTouchEnd = (e) => {
+    initialPinchDist.current = null
+    if (e.touches.length === 0) setHoverIndex(null)
+  }
+
+  const handleZoomBtn = (delta) => {
+    const newScale = Math.max(1, Math.min(10, zoomScale + delta))
+    let newPan = panOffset + 0.5 * 100 * (1/zoomScale - 1/newScale)
+    const maxPan = ((newScale - 1) / newScale) * 100
+    setZoomScale(newScale)
+    setPanOffset(Math.max(0, Math.min(newPan, maxPan)))
+  }
+
   const activePoint = hoverIndex !== null ? enrichedData[hoverIndex] : null
 
   return (
@@ -140,21 +192,23 @@ const DragyStyleChart = ({ runData }) => {
         ref={containerRef}
         className="relative w-full h-56 border-l border-b border-gray-700 cursor-crosshair overflow-hidden touch-none"
         onMouseMove={handlePointerMove}
-        onTouchMove={handlePointerMove}
         onMouseLeave={handlePointerLeave}
-        onTouchEnd={handlePointerLeave}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
       >
-        <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full" preserveAspectRatio="none" style={{ transform: `scaleX(${zoomScale}) translateX(${-panOffset}%)`, transformOrigin: 'left' }}>
+        <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full" preserveAspectRatio="none" style={{ transform: `translateX(-${panOffset}%) scaleX(${zoomScale})`, transformOrigin: '0 0' }}>
           {[0, 1, 2, 3, 4].map(step => (
-            <line key={`grid-y-${step}`} x1="0" y1={100 - (step / 4) * 100} x2="100" y2={100 - (step / 4) * 100} stroke="#1f2937" strokeWidth="0.5" strokeDasharray="1,1" />
+            <line key={`grid-y-${step}`} x1="0" y1={100 - (step / 4) * 100} x2="100" y2={100 - (step / 4) * 100} stroke="#1f2937" strokeWidth="0.5" strokeDasharray="1,1" vectorEffect="non-scaling-stroke" />
           ))}
           {[1, 2, 3, 4, 5].map(step => (
-            <line key={`grid-x-${step}`} x1={(step / 5) * 100} y1="0" x2={(step / 5) * 100} y2="100" stroke="#1f2937" strokeWidth="0.5" strokeDasharray="1,1" />
+            <line key={`grid-x-${step}`} x1={(step / 5) * 100} y1="0" x2={(step / 5) * 100} y2="100" stroke="#1f2937" strokeWidth="0.5" strokeDasharray="1,1" vectorEffect="non-scaling-stroke" />
           ))}
 
-          <polyline fill="none" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" points={distPoints} opacity="0.6" />
-          <polyline fill="none" stroke="#f97316" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" points={accelPoints} opacity="0.8" />
-          <polyline fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={speedPoints} />
+          <polyline fill="none" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" points={distPoints} opacity="0.6" vectorEffect="non-scaling-stroke" />
+          <polyline fill="none" stroke="#f97316" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" points={accelPoints} opacity="0.8" vectorEffect="non-scaling-stroke" />
+          <polyline fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={speedPoints} vectorEffect="non-scaling-stroke" />
 
           {hoverIndex !== null && (
              <line 
@@ -164,7 +218,8 @@ const DragyStyleChart = ({ runData }) => {
                 y2="100" 
                 stroke="#fff" 
                 strokeWidth="0.5" 
-                strokeDasharray="2,2" 
+                strokeDasharray="2,2"
+                vectorEffect="non-scaling-stroke" 
              />
           )}
         </svg>
