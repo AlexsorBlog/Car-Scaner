@@ -336,6 +336,7 @@ export default function DashboardPage() {
   const [graphZoomMs, setGraphZoomMs] = useState(10 * 60 * 1000); 
   const touchStartX = useRef(null);
   const hasAutoJumped = useRef(false);
+  const [showMainGraph, setShowMainGraph] = useState(true);
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
@@ -959,39 +960,103 @@ export default function DashboardPage() {
         {!telemetry.isConnected && !isEditMode && <div className="absolute top-3 left-3 w-1.5 h-1.5 rounded-full bg-gray-700/50"></div>}
 
         {isSpeedHero ? (
-          <div className="relative w-56 h-56 rounded-full border-[6px] border-gray-800/80 flex flex-col justify-center items-center bg-gradient-to-b from-[#0b0c10] to-[#111318] transition-shadow duration-300" style={{ boxShadow: dynamicGlow }}>
-            <svg className="absolute inset-0 w-full h-full transform -rotate-[135deg]">
-               <circle cx="106" cy="106" r="98" stroke="url(#blue-gradient)" strokeWidth="6" fill="none" strokeDasharray="615" strokeDashoffset={615 - ((normalizedSpeed) / 220 * 461)} strokeLinecap="round" className="transition-all duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)] opacity-90" />
-               <defs><linearGradient id="blue-gradient" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stopColor="#60a5fa" /><stop offset="100%" stopColor="#2563eb" /></linearGradient></defs>
-            </svg>
-            <div className="absolute inset-0 flex justify-center items-center pointer-events-none" style={{ transform: `rotate(${needleAngle}deg)`, transition: 'transform 0.7s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
-               <div className="w-1.5 h-[90px] bg-red-500 rounded-full absolute bottom-1/2 shadow-[0_0_10px_rgba(239,68,68,0.8)] origin-bottom"></div>
-               <div className="w-5 h-5 bg-[#0b0c10] border-[4px] border-red-500 rounded-full absolute"></div>
+          <div className="flex flex-col items-center w-full">
+            <div className="relative w-64 h-64 rounded-full border-[8px] border-gray-900 flex flex-col justify-center items-center bg-gradient-to-b from-[#0b0c10] to-[#111318] transition-shadow duration-300" style={{ boxShadow: dynamicGlow }}>
+              
+              {/* Unified Scale & Progress Arc */}
+              <svg className="absolute inset-0 w-full h-full overflow-visible" viewBox="0 0 200 200">
+                <defs>
+                  <linearGradient id="speed-gradient" x1="0%" y1="100%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#0ea5e9" />
+                    <stop offset="100%" stopColor="#ef4444" />
+                  </linearGradient>
+                  <filter id="arc-glow">
+                    <feGaussianBlur stdDeviation="3" result="blur" />
+                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                  </filter>
+                </defs>
+
+                {/* Track Background (Фонова доріжка) */}
+                <circle 
+                  cx="100" cy="100" r="88" fill="none" stroke="#1f2937" strokeWidth="4" 
+                  strokeLinecap="round" strokeDasharray="553" strokeDashoffset="138" transform="rotate(135 100 100)" 
+                />
+
+                {/* Animated Speed Arc (Активна лінія швидкості) */}
+                <circle 
+                  cx="100" cy="100" r="88" fill="none" stroke="url(#speed-gradient)" strokeWidth="6" 
+                  strokeLinecap="round" strokeDasharray="553" 
+                  strokeDashoffset={553 - ((normalizedSpeed) / 220 * 414.75)} 
+                  className="transition-all duration-700 ease-[cubic-bezier(0.34,1.56,0.64,1)]" 
+                  transform="rotate(135 100 100)" style={{ filter: 'url(#arc-glow)' }}
+                />
+
+                {/* Ticks & Numbers (Мітки та цифри) */}
+                {[0, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200, 220].map((tick, i) => {
+                  const angle = -135 + ((tick / 220) * 270);
+                  const rad = (angle - 90) * (Math.PI / 180);
+                  const innerRad = 80;
+                  const outerRad = 88;
+                  
+                  const x1 = 100 + innerRad * Math.cos(rad);
+                  const y1 = 100 + innerRad * Math.sin(rad);
+                  const x2 = 100 + outerRad * Math.cos(rad);
+                  const y2 = 100 + outerRad * Math.sin(rad);
+                  
+                  const tx = 100 + 64 * Math.cos(rad);
+                  const ty = 100 + 64 * Math.sin(rad);
+
+                  return (
+                    <g key={i}>
+                      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#4b5563" strokeWidth="2" strokeLinecap="round" />
+                      <text x={tx} y={ty} fill="#9ca3af" fontSize="10" textAnchor="middle" dominantBaseline="middle" className="font-bold">
+                        {tick}
+                      </text>
+                    </g>
+                  );
+                })}
+              </svg>
+
+              {/* Needle (Стрілка, налаштована під новий радіус) */}
+              <div className="absolute inset-0 flex justify-center items-center pointer-events-none" style={{ transform: `rotate(${needleAngle}deg)`, transition: 'transform 0.7s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
+                 <div className="w-1.5 h-[80px] bg-red-500 rounded-full absolute bottom-1/2 shadow-[0_0_15px_rgba(239,68,68,0.8)] origin-bottom mb-2"></div>
+                 <div className="w-6 h-6 bg-[#0b0c10] border-[4px] border-red-500 rounded-full absolute"></div>
+              </div>
+              
+              {/* Values */}
+              <div className="flex flex-col items-center mt-6 z-10">
+                {isWaitingData ? (
+                  <div className="text-gray-600 animate-pulse text-2xl font-bold">--</div>
+                ) : (
+                  <span className="text-7xl font-black tracking-tighter tabular-nums text-white drop-shadow-md">{metricData.value}</span>
+                )}
+                <span className="text-sm text-gray-500 font-bold tracking-widest uppercase">КМ/ГОД</span>
+              </div>
             </div>
-            
-            {isWaitingData ? (
-               <div className="text-gray-600 animate-pulse mt-4">Очікування...</div>
-            ) : (
-               <span className="text-6xl font-black tracking-tighter tabular-nums text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-400 relative z-10 pt-10">{metricData.value}</span>
-            )}
-            <span className="text-[10px] text-gray-500 font-bold tracking-widest mt-1 relative z-10">КМ/ГОД</span>
-            
+
+            {/* Toggle Graph Button */}
             {!isWaitingData && (
-              <div className="mt-2 flex flex-col items-center relative z-10 bg-[#050505]/50 px-4 py-1 rounded-full border border-gray-800/80 shadow-inner group">
-                <span className="text-[8px] text-gray-500 uppercase tracking-widest flex items-center">
-                  Проїхано (Trip)
-                  <button 
-                    onClick={(e) => { 
-                      e.stopPropagation(); 
-                      setTripDistance(0); 
-                      localStorage.setItem('obd_trip_distance', '0'); 
-                    }} 
-                    className="hidden group-hover:block ml-2 text-red-400 hover:text-red-300 font-bold"
-                  >
-                    ✕
-                  </button>
-                </span>
-                <span className="text-xs font-bold text-blue-400 tabular-nums">{tripDistance.toFixed(3)} км</span>
+              <div className="w-full mt-6 mb-2 flex justify-between items-center border-b border-gray-800 pb-2 px-2">
+                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Графік швидкості</span>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setShowMainGraph(!showMainGraph); }}
+                  className="bg-gray-900 border border-gray-700 px-3 py-1 text-[10px] rounded-full text-blue-400 font-bold"
+                >
+                  {showMainGraph ? 'СХОВАТИ' : 'ПОКАЗАТИ'}
+                </button>
+              </div>
+            )}
+
+            {/* Main Graph (Dynamic) */}
+            {showMainGraph && !isWaitingData && (
+              <div className="w-full px-2" onClick={(e) => e.stopPropagation()}>
+                <MiniGraph 
+                  data={get24hData(telemetry.history.speed)} 
+                  color="#60a5fa" 
+                  label="Швидкість" 
+                  unit="км/год" 
+                  onClick={() => setSelectedGraph({ id: 'SPEED', label: 'Швидкість', color: '#60a5fa', unit: 'км/год' })} 
+                />
               </div>
             )}
           </div>
