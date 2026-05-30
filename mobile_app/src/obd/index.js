@@ -234,13 +234,10 @@ class OBDManager {
             continue;
           }
 
-          // ... rest of existing deduplication logic unchanged
-
           // Also drop codes where the numeric part is all zeros or all F's — always padding
           const numericPart = baseCode.substring(1);
           if (numericPart === '0000' || numericPart === 'FFFF') continue;
           
-          const isKnown = !!dtcDictionary[baseCode];
           
           if (!allCodes.has(baseCode) || (isKnown && !allCodes.get(baseCode).isKnown)) {
             allCodes.set(baseCode, {
