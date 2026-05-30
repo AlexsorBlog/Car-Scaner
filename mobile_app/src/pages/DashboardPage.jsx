@@ -272,7 +272,7 @@ const DragyStyleChart = ({ runData }) => {
 
 const MiniGraph = ({ data, color, label, unit, onClick }) => {
   if (!data || data.length === 0) return (
-    <div className="flex flex-col bg-[#111318] p-3 rounded-xl border border-gray-800">
+    <div className="flex flex-col w-full bg-[#111318] p-3 rounded-xl border border-gray-800">
       <div className="flex justify-between items-end mb-2">
         <span className="text-[10px] text-gray-500 font-bold">{label}</span>
       </div>
@@ -293,15 +293,19 @@ const MiniGraph = ({ data, color, label, unit, onClick }) => {
   const points = data.map((d, i) => `${(i / (data.length - 1)) * 100},${100 - (((d.v - min) / range) * 100)}`).join(' ');
 
   return (
-    <div onClick={onClick} className="flex flex-col bg-[#111318] p-3 rounded-xl border border-gray-800 cursor-pointer hover:border-gray-600 transition-colors shadow-md">
+    <div onClick={onClick} className="flex flex-col w-full bg-[#111318] p-3 rounded-xl border border-gray-800 cursor-pointer hover:border-gray-600 transition-colors shadow-md">
       <div className="flex justify-between items-end mb-1">
         <span className="text-[10px] text-gray-500 font-bold">{label}</span>
         <span className="text-xs font-bold transition-all duration-300" style={{ color }}>{values[values.length-1]} <span className="text-[9px]">{unit}</span></span>
       </div>
-      <svg viewBox="0 0 100 100" className="w-full h-10 overflow-visible" preserveAspectRatio="none">
-        <polyline fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" points={points} className="drop-shadow-md" />
-        <polygon fill={`${color}20`} points={`0,100 ${points} 100,100`} />
-      </svg>
+      
+      {/* ФІКС ДЛЯ МОБІЛЬНИХ ПРИСТРОЇВ: Жорсткий контейнер для SVG */}
+      <div className="relative w-full h-10 shrink-0">
+        <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full overflow-visible" preserveAspectRatio="none">
+          <polyline fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" points={points} className="drop-shadow-md" />
+          <polygon fill={`${color}20`} points={`0,100 ${points} 100,100`} />
+        </svg>
+      </div>
     </div>
   );
 };

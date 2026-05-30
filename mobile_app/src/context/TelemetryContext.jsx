@@ -303,44 +303,78 @@ export function TelemetryProvider({ children }) {
   const scanErrors = useCallback(async () => {
     setData(prev => ({ ...prev, isCheckingErrors: true }));
     isPaused.current = true;
-
     await new Promise(r => setTimeout(r, 800));
 
     try {
       const now = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
-      
-      // Execute the Waterfall scanner
+
       const result = await obd.smartReadDTC(dtcDictionary);
       console.log(`[OBD] Сканування завершено. ${result.variant}`);
+      console.log(`[OBD] Сирі коди до фільтрації:`, result.codes.map(c => c.base || c));
 
       const finalErrors = result.codes
-      // ── STRICT FILTER: only show codes that exist in our dictionary ──────────
-      .filter(codeItem => {
-        const known = !!dtcDictionary[codeItem.base];
-        if (!known) {
-          console.log(`[DTC] Dropping unknown code: ${codeItem.base} (not in dictionary)`);
-        }
-        return known;
-      })
-      .map(codeItem => {
-        const baseCode = codeItem.base;
-        return {
-          code:           codeItem.code,
-          title:          codeItem.title,
-          desc:           `Протокол: ${codeItem.variant || result.variant}`,
-          severity:       _classifyDtcSeverity(baseCode),
-          cost:           _estimateDtcCost(baseCode),
-          statusCategory: _dtcStatusCategory(codeItem.statusByte ?? null),
-          statusByte:     codeItem.statusByte ?? null,
-        };
-      });
+        // ── 1. Drop anything not in our dictionary ────────────────────────
+        .filter(codeItem => {
+          const known = !!dtcDictionary[codeItem.base];
+          if (!known) console.log(`[DTC] Dropping unknown: ${codeItem.base}`);
+          return known;
+        })
+        // ── 2. Deduplicate by base code — keep the highest-priority entry ─
+        // Priority: active (Mode 03) > pending (Mode 07) > historic (Mode 0A)
+        .reduce((acc, codeItem) => {
+          const existing = acc.find(e => e.base === codeItem.base);
+          if (!existing) {
+            acc.push(codeItem);
+          } else {
+            // Replace if new one has higher priority source
+            const priority = { 'Mode 03': 0, 'Mode 07': 1, 'Mode 0A': 2 };
+            const newP  = priority[codeItem.variant] ?? 3;
+            const exstP = priority[existing.variant]  ?? 3;
+            if (newP < exstP) {
+              const idx = acc.indexOf(existing);
+              acc[idx] = codeItem;
+            }
+          }
+          return acc;
+        }, [])
+        // ── 3. Map to final shape with correct statusCategory ─────────────
+        .map(codeItem => {
+          const baseCode = codeItem.base;
 
-      // Optional: log how many of each category we got — useful for tuning
+          // Protocol-level status overrides the UDS status byte:
+          // Mode 03 = confirmed/active codes stored in ECU memory
+          // Mode 07 = pending (failed this drive cycle, not yet confirmed)
+          // Mode 0A = permanent (cannot be cleared by Mode 04)
+          let statusCategory;
+          if (codeItem.variant?.includes('Mode 07')) {
+            statusCategory = 'pending';
+          } else if (codeItem.variant?.includes('Mode 0A')) {
+            statusCategory = 'historic';
+          } else if (codeItem.variant?.includes('Mode 03')) {
+            statusCategory = 'active';
+          } else {
+            // UDS or KWP — use the status byte if available
+            statusCategory = _dtcStatusCategory(codeItem.statusByte ?? null);
+          }
+
+          return {
+            code:           codeItem.code,
+            title:          codeItem.title,
+            desc:           `Протокол: ${codeItem.variant || result.variant}`,
+            severity:       _classifyDtcSeverity(baseCode),
+            cost:           _estimateDtcCost(baseCode),
+            statusCategory,
+            statusByte:     codeItem.statusByte ?? null,
+          };
+        });
+
+      // Log breakdown for debugging
       const counts = finalErrors.reduce((acc, e) => {
         acc[e.statusCategory] = (acc[e.statusCategory] || 0) + 1;
         return acc;
       }, {});
-      console.log('[Telemetry] DTC categories:', counts);
+      console.log('[Telemetry] DTC categories after filter:', counts);
+      console.log('[Telemetry] Final errors:', finalErrors.map(e => `${e.code} (${e.statusCategory})`));
 
       setData(prev => ({
         ...prev,

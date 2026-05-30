@@ -25,6 +25,34 @@ function RecenterMap({ position }) {
   return null;
 }
 
+// ── Map drag event listener ──────────────────────────────────────────────────
+function MapEvents({ onBoundsChange }) {
+  const map = useMap();
+  
+  useEffect(() => {
+    let timeout;
+    const handleMoveEnd = () => {
+      clearTimeout(timeout);
+      // Debounce the call so we don't spam the API while the user is actively panning
+      timeout = setTimeout(() => {
+        const center = map.getCenter();
+        onBoundsChange([center.lat, center.lng]);
+      }, 800); 
+    };
+
+    map.on('moveend', handleMoveEnd);
+    map.on('zoomend', handleMoveEnd);
+
+    return () => {
+      map.off('moveend', handleMoveEnd);
+      map.off('zoomend', handleMoveEnd);
+      clearTimeout(timeout);
+    };
+  }, [map, onBoundsChange]);
+
+  return null;
+}
+
 // ── Icons ─────────────────────────────────────────────────────────────────────
 
 const userIcon = new L.DivIcon({
@@ -237,6 +265,41 @@ export default function ServicesPage() {
     s.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  // ── Handle Map Movement ───────────────────────────────────────────────────
+
+  const handleMapBoundsChange = useCallback(async (newPos) => {
+    // Prevent fetching if we are already doing an initial location fetch
+    if (isLocating || !newPos) return;
+    
+    setIsFetchingShops(true);
+    try {
+      const found = await fetchNearbyShops(newPos, 5000);
+      
+      setShops(prevShops => {
+        // Merge new shops with existing ones to avoid screen flickering,
+        // using Map to ensure uniqueness by ID
+        const shopMap = new Map();
+        prevShops.forEach(s => shopMap.set(s.id, s));
+        
+        found.forEach(s => {
+          // Keep user's actual physical position for distance calculation if available, 
+          // otherwise fallback to the map center they dragged to
+          const refPos = position || newPos;
+          shopMap.set(s.id, {
+            ...s,
+            distKm: haversineKm(refPos, [s.lat, s.lon])
+          });
+        });
+        
+        return Array.from(shopMap.values()).sort((a, b) => a.distKm - b.distKm);
+      });
+    } catch (err) {
+      console.warn("Failed to fetch more shops:", err);
+    } finally {
+      setIsFetchingShops(false);
+    }
+  }, [isLocating, position]);
+
   const isOpen = (hours) => {
     if (!hours) return null;
     if (hours.toLowerCase().includes('24/7')) return true;
@@ -268,7 +331,7 @@ export default function ServicesPage() {
             {/* User dot */}
             <Marker position={position} icon={userIcon} />
 
-            {/* Shop markers */}
+          {/* Shop markers */}
             {filtered.map(shop => (
               <Marker
                 key={shop.id}
@@ -279,6 +342,8 @@ export default function ServicesPage() {
             ))}
 
             <RecenterMap position={mapCenter} />
+            {/* ADD THE NEW COMPONENT HERE: */}
+            <MapEvents onBoundsChange={handleMapBoundsChange} />
           </MapContainer>
         )}
 

@@ -127,29 +127,47 @@ export const decodeUas = (hex, id) => {
  *   Byte B           → third and fourth digits (two hex nibbles)
  */
 export const dtc = (hex) => {
-  if (!hex || hex.length < 2) return [];
+  if (!hex || hex.length < 4) return [];
 
-  const codes = [];
+  const codes   = [];
   const LETTERS = ['P', 'C', 'B', 'U'];
 
-  const data = hex;
+  // The first byte after stripping the mode prefix is the DTC count.
+  // e.g. "43" response "004300" → count=0x00, then pairs follow.
+  // We skip the count byte and process 2-byte pairs from offset 2.
+  const countByte = parseInt(hex.substring(0, 2), 16);
+
+  // If ECU reports zero DTCs, return immediately — no pairs to parse
+  if (countByte === 0) return [];
+
+  // Parse pairs starting after the count byte
+  const data = hex.substring(2);
 
   for (let i = 0; i + 3 < data.length; i += 4) {
     const chunk = data.substring(i, i + 4);
+
+    // Skip null padding
     if (chunk === '0000') continue;
 
     const byteA = parseInt(chunk.substring(0, 2), 16);
     const byteB = parseInt(chunk.substring(2, 4), 16);
 
-    const letter = LETTERS[(byteA >> 6) & 0x03];
-    const d1 = (byteA >> 4) & 0x03;
-    const d234 = ((byteA & 0x0F).toString(16) + byteB.toString(16).padStart(2, '0')).toUpperCase();
+    // byteA = 0x00 with byteB = anything is also padding
+    if (byteA === 0 && byteB === 0) continue;
 
-    codes.push(`${letter}${d1}${d234}`);
+    const letter = LETTERS[(byteA >> 6) & 0x03];
+    const d1     = (byteA >> 4) & 0x03;
+    const d234   = ((byteA & 0x0F).toString(16) + byteB.toString(16).padStart(2, '0')).toUpperCase();
+    const code   = `${letter}${d1}${d234}`;
+
+    // Final sanity: reject codes that are all-zeros after the letter
+    if (d1 === 0 && (byteA & 0x0F) === 0 && byteB === 0) continue;
+
+    codes.push(code);
   }
 
   return codes;
-}
+};
 
 // ── String decoder ────────────────────────────────────────────────────────────
 

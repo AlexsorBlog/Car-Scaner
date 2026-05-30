@@ -215,15 +215,26 @@ class OBDManager {
         
         for (const item of result) {
           const baseCode = method.isUds ? item.base : item;
-          
-          // Structural ghosts: ECU padding, all-zero codes, known false positives
-          const GHOST_CODES = new Set([
-            'P0000', 'C0000', 'B0000', 'U0000',
-            'C0300', 'C0700', 'C0A00',
-            'P0AAA', // some ELM327 clones emit these on init
-          ]);
 
+          // ── Ghost filter ──────────────────────────────────────────────────────
+          const GHOST_CODES = new Set([
+            'P0000','C0000','B0000','U0000',
+            'C0300','C0700','C0A00',
+          ]);
           if (GHOST_CODES.has(baseCode)) continue;
+
+          // Reject all-zero numeric portion (P0000 variants that slipped through)
+          if (/^[PCBU]0{4}$/.test(baseCode)) continue;
+
+          // ── For Mode 03/07/0A: only accept codes in our dictionary ───────────
+          // UDS codes we accept regardless (richer protocol, more trustworthy)
+          const isKnown = !!dtcDictionary[baseCode];
+          if (!method.isUds && !isKnown) {
+            console.log(`[DTC] Dropping non-dictionary code from ${method.name}: ${baseCode}`);
+            continue;
+          }
+
+          // ... rest of existing deduplication logic unchanged
 
           // Also drop codes where the numeric part is all zeros or all F's — always padding
           const numericPart = baseCode.substring(1);
@@ -306,25 +317,47 @@ class OBDManager {
 
       if (cmd === '03' || cmd === '07' || cmd === '0A') {
         const expectedPrefix = '4' + cmd.charAt(1);
-        
         let idx = fullHexPayload.indexOf(expectedPrefix);
-        if (idx !== -1) prefixFound = true;
-        
+        if (idx === -1) return null;
+        prefixFound = true;
+
+        // Parse each ECU response independently
+        const perEcuCodes = [];
+
         while (idx !== -1) {
-          let nextIdx = fullHexPayload.indexOf(expectedPrefix, idx + 2);
-          let ecuPayload = nextIdx !== -1 
-              ? fullHexPayload.substring(idx + 2, nextIdx) 
-              : fullHexPayload.substring(idx + 2);
-              
-          if (ecuPayload.length % 4 !== 0) {
-             ecuPayload = ecuPayload.substring(2);
+          const nextIdx   = fullHexPayload.indexOf(expectedPrefix, idx + 2);
+          // Each ECU's raw payload (after the 2-char mode prefix)
+          let ecuRaw = nextIdx !== -1
+            ? fullHexPayload.substring(idx + 2, nextIdx)
+            : fullHexPayload.substring(idx + 2);
+
+          // Align to 2-byte pairs
+          if (ecuRaw.length % 2 !== 0) ecuRaw = ecuRaw.substring(1);
+
+          // Decode this single ECU's response independently
+          const ecuCodes = decoderFunc(ecuRaw);
+          if (Array.isArray(ecuCodes)) {
+            perEcuCodes.push(ecuCodes);
           }
-          
-          const validLen = Math.floor(ecuPayload.length / 4) * 4;
-          hexData += ecuPayload.substring(0, validLen);
-          
+
           idx = nextIdx;
         }
+
+        if (perEcuCodes.length === 0) return null;
+
+        // A code is real only if AT LEAST ONE ECU reports it
+        // (union — catches single-ECU cars and multi-ECU cars alike)
+        // but deduplicated so same code from 2 ECUs counts once
+        const seen    = new Set();
+        const unified = [];
+        for (const ecuList of perEcuCodes) {
+          for (const code of ecuList) {
+            if (!seen.has(code)) { seen.add(code); unified.push(code); }
+          }
+        }
+
+        if (unified.length > 0) saveRawLog('DTC_DECODED', cmd, JSON.stringify(unified));
+        return unified; // already deduplicated, skip rest of function
       } else if (cmd.startsWith('19') || cmd.startsWith('18')) {
         prefixFound = true; 
         hexData = fullHexPayload;
