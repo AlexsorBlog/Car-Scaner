@@ -221,7 +221,7 @@ export default function DiagnosticsPage() {
 
       {/* МОДАЛКА ДЕТАЛЕЙ ПОМИЛКИ */}
       {selectedError && (
-        <div className="fixed inset-0 z-[130] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in p-safe">
+        <div className="fixed inset-0 z-[130] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in p-safe pt-safe">
           <div className="bg-[#0b0c10] border-t border-gray-800 rounded-t-3xl w-full flex flex-col shadow-2xl pb-8 animate-in slide-in-from-bottom-10">
             <div className="p-5 border-b border-gray-800 flex justify-between items-center bg-[#111318] rounded-t-3xl">
               <h2 className="font-bold text-sm text-white uppercase tracking-wider">Деталі помилки</h2>
@@ -260,7 +260,7 @@ export default function DiagnosticsPage() {
 
       {/* НОВЕ: ІСТОРІЯ ПОМИЛОК МОДАЛКА */}
       {showHistoryModal && (
-        <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-md flex items-end md:items-center justify-center animate-in fade-in p-4">
+        <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-md flex items-end md:items-center justify-center animate-in fade-in p-4 pt-safe">
            <div className="bg-[#0b0c10] w-full max-w-2xl rounded-3xl border border-gray-800 shadow-2xl h-[70vh] flex flex-col animate-in zoom-in-95 overflow-hidden">
              <div className="p-5 border-b border-gray-800 flex justify-between items-center bg-[#111318]">
                <h2 className="text-sm font-bold text-white uppercase tracking-widest">Архів сканувань</h2>

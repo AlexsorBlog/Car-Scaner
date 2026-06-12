@@ -312,7 +312,7 @@ export default function ServicesPage() {
   const fmtDist = (km) => km < 1 ? `${Math.round(km * 1000)} м` : `${km.toFixed(1)} км`;
 
   return (
-    <div className="relative h-screen w-full bg-[#050505] overflow-hidden">
+    <div className="relative w-full bg-[#050505] overflow-hidden" style={{ height: 'calc(100vh - var(--safe-top) - var(--safe-bottom))' }}>
 
       {/* MAP */}
       <div className="absolute inset-0 z-0">

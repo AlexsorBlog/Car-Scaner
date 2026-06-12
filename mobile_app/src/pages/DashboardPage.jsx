@@ -1334,7 +1334,7 @@ export default function DashboardPage() {
       </div>
 
       {showAnalysisModal && (
-        <div className="fixed inset-0 z-[110] bg-black/80 backdrop-blur-sm flex items-end md:items-center justify-center animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[110] bg-black/80 backdrop-blur-sm flex items-end md:items-center justify-center animate-in fade-in duration-200 pt-safe">
           <div className="bg-[#0b0c10] w-full md:w-3/4 max-w-2xl rounded-t-3xl md:rounded-3xl border border-gray-800 shadow-2xl h-[85vh] md:h-[70vh] flex flex-col animate-in slide-in-from-bottom-10">
             <div className="p-5 border-b border-gray-800 flex flex-col gap-4 bg-[#111318] rounded-t-3xl">
               <div className="flex justify-between items-center">
@@ -1405,7 +1405,7 @@ export default function DashboardPage() {
       )}
 
       {showErrorHistoryModal && (
-         <div className="fixed inset-0 z-[115] bg-black/80 backdrop-blur-md flex items-end md:items-center justify-center animate-in fade-in p-4">
+         <div className="fixed inset-0 z-[115] bg-black/80 backdrop-blur-md flex items-end md:items-center justify-center animate-in fade-in p-4 pt-safe">
            <div className="bg-[#0b0c10] w-full max-w-2xl rounded-3xl border border-gray-800 shadow-2xl h-[70vh] flex flex-col animate-in zoom-in-95 overflow-hidden">
              <div className="p-5 border-b border-gray-800 flex justify-between items-center bg-[#111318]">
                <h2 className="text-sm font-bold text-white uppercase tracking-widest">Історія помилок (БД)</h2>
@@ -1460,7 +1460,7 @@ export default function DashboardPage() {
       )}
 
       {selectedGraph && (
-        <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-200 p-4">
+        <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-200 p-4 pt-safe">
           <div className="bg-[#0b0c10] w-full max-w-3xl rounded-3xl border border-gray-800 shadow-2xl h-[75vh] flex flex-col animate-in zoom-in-95 overflow-hidden">
             <div className="p-5 border-b border-gray-800 flex justify-between items-center bg-[#111318]">
               <h2 className="text-xl font-black text-white flex items-center gap-3">
@@ -1479,7 +1479,7 @@ export default function DashboardPage() {
       )}
 
       {selectedPerfRecord && (
-        <div className="fixed inset-0 z-[130] bg-black/80 backdrop-blur-md flex items-end md:items-center justify-center animate-in fade-in p-4">
+        <div className="fixed inset-0 z-[130] bg-black/80 backdrop-blur-md flex items-end md:items-center justify-center animate-in fade-in p-4 pt-safe">
            <div className="bg-[#0b0c10] w-full max-w-2xl rounded-3xl border border-gray-800 shadow-2xl h-[85vh] flex flex-col animate-in zoom-in-95 overflow-hidden">
               <div className="p-5 border-b border-gray-800 flex justify-between items-center bg-[#111318]">
                  <div>

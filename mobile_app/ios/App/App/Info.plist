@@ -2,9 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Додаток використовує Bluetooth для підключення до OBD-II сканера</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Додаток використовує Bluetooth для підключення до OBD-II сканера</string>
     <key>CAPACITOR_DEBUG</key>
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Додаток використовує вашу локацію щоб показати найближчі СТО</string>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
         <string>mobile_app</string>
