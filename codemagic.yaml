@@ -31,8 +31,10 @@ workflows:
         script: npx cap sync ios
         
       # НОВИЙ ВАЖЛИВИЙ КРОК: Завантажуємо сертифікати через API-ключ
+      # НОВИЙ ВАЖЛИВИЙ КРОК: Ініціалізуємо ключі та завантажуємо сертифікати
       - name: Set up Automatic Code Signing
         script: |
+          keychain initialize
           app-store-connect fetch-signing-files $(xcode-project detect-bundle-id) \
             --type IOS_APP_STORE \
             --create
