@@ -6,14 +6,16 @@ workflows:
     working_directory: mobile_app
     
     integrations:
-      app_store_connect: "Car app" # <--- ВСТАВТЕ СЮДИ НАЗВУ ВАШОГО API-КЛЮЧА
+      app_store_connect: "Car app" # <-- Ваша назва API-ключа
     
     environment:
       node: 22
       xcode: latest
-      vars:
-        # ВСТАВТЕ ВАШ РЕАЛЬНИЙ BUNDLE ID ТУТ (наприклад: "com.йогокомпанія.carscanner")
-        APP_BUNDLE_ID: "CarSense.com.ua" 
+      
+      # ОСЬ ЦЯ МАГІЯ ВИРІШУЄ ВСЕ:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: CarSense.com.ua # <--- ВПИШІТЬ СЮДИ РЕАЛЬНИЙ BUNDLE ID КЛІЄНТА
         
     triggering:
       events:
@@ -33,20 +35,7 @@ workflows:
       - name: Sync Capacitor to iOS
         script: npx cap sync ios
         
-      # НОВИЙ КРОК: Примусово змінюємо Bundle ID в усьому проекті Xcode через термінал Mac
-      - name: Force Xcode Bundle ID (Bulletproof Fix)
-        script: |
-          sed -i '' "s/PRODUCT_BUNDLE_IDENTIFIER = [^;]*;/PRODUCT_BUNDLE_IDENTIFIER = $APP_BUNDLE_ID;/g" ios/App/App.xcodeproj/project.pbxproj
-        
-      - name: Set up Automatic Code Signing
-        script: |
-          keychain initialize
-          # Явно просимо Apple сертифікат саме для вашого APP_BUNDLE_ID
-          app-store-connect fetch-signing-files $APP_BUNDLE_ID \
-            --type IOS_APP_STORE \
-            --create
-          keychain add-certificates
-          xcode-project use-profiles
+      # Ніяких скриптів для ключів, sed чи Plutil! Codemagic вже все налаштував у фоні.
         
       - name: Build IPA
         script: |
