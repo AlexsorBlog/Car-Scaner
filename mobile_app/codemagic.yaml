@@ -1,0 +1,46 @@
+workflows:
+  ios-testflight-build:
+    name: Build iOS & Push to TestFlight
+    instance_type: mac_mini_m1
+    max_build_duration: 60
+    # Вказуємо ту саму робочу папку, що й у GitHub Actions
+    working_directory: mobile_app
+    
+    environment:
+      # Ваша версія Node.js
+      node: 22
+      xcode: latest
+      groups:
+        # Назва групи змінних у Codemagic, куди ви додасте API-ключ клієнта
+        - apple_credentials 
+        
+    triggering:
+      events:
+        - push
+      branches:
+        - main
+        
+    scripts:
+      - name: Install Dependencies
+        script: npm install
+        
+      - name: Build Web App
+        script: npm run build
+        
+      - name: Sync Capacitor to iOS
+        script: npx cap sync ios
+        
+      - name: Build IPA and Auto-Sign
+        script: |
+          xcode-project build-ipa \
+            --workspace "ios/App/App.xcworkspace" \
+            --scheme "App"
+            
+    artifacts:
+      - build/ios/ipa/*.ipa
+      
+    publishing:
+      # Автоматична відправка зібраного додатку клієнту в TestFlight
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
