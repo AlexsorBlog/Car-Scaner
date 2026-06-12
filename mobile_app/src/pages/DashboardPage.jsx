@@ -15,6 +15,7 @@ import FuelIcon from '../assets/fuel.svg';
 import EngineIcon from '../assets/engine.svg';
 import IntakeIcon from '../assets/thermometer-sun.svg';
 import ThrottleIcon from '../assets/bar-chart.svg';
+import '../App.css';
 
 const INITIAL_LAYOUT = [
   { id: 'SPEED', visible: true, size: 'col-span-3' },
