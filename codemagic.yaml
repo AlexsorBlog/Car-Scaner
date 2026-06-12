@@ -6,13 +6,11 @@ workflows:
     working_directory: mobile_app
     
     integrations:
-      app_store_connect: "Car app" # <-- Ваша назва API-ключа
+      app_store_connect: "Car app" # Переконайтеся, що назва в Codemagic ідентична
     
     environment:
       node: 22
       xcode: latest
-      
-      # ОСЬ ЦЯ МАГІЯ ВИРІШУЄ ВСЕ:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: ua.com.carsense
@@ -35,7 +33,12 @@ workflows:
       - name: Sync Capacitor to iOS
         script: npx cap sync ios
         
-      # Ніяких скриптів для ключів, sed чи Plutil! Codemagic вже все налаштував у фоні.
+      - name: Set up code signing
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files $(xcode-project detect-bundle-id) --type IOS_APP_STORE --create
+          keychain add-certificates
+          xcode-project use-profiles
         
       - name: Build IPA
         script: |
