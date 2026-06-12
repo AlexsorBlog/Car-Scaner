@@ -6,7 +6,7 @@ workflows:
     working_directory: mobile_app
     
     integrations:
-      app_store_connect: "НАЗВА_ВАШОГО_КЛЮЧА_ТУТ" # Не забудьте вставити точну назву!
+      app_store_connect: "Car app" # Не забудьте вставити точну назву!
     
     environment:
       node: 22
