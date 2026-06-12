@@ -3,22 +3,26 @@ workflows:
     name: Build iOS & Push to TestFlight
     instance_type: mac_mini_m1
     max_build_duration: 60
-    # Вказуємо ту саму робочу папку, що й у GitHub Actions
     working_directory: mobile_app
     
+    # ВИПРАВЛЕННЯ 2: Підключення API-ключа клієнта
+    integrations:
+      app_store_connect: "Назва_Вашого_Ключа_В_Codemagic" # <-- ЗАМІНІТЬ ЦЕ НА ТОЧНУ НАЗВУ КЛЮЧА
+    
     environment:
-      # Ваша версія Node.js
       node: 22
       xcode: latest
       groups:
-        # Назва групи змінних у Codemagic, куди ви додасте API-ключ клієнта
         - apple_credentials 
         
+    # ВИПРАВЛЕННЯ 1: Правильний синтаксис для тригера гілки
     triggering:
       events:
         - push
-      branches:
-        - main
+      branch_patterns:
+        - pattern: 'main'
+          include: true
+          source: true
         
     scripts:
       - name: Install Dependencies
@@ -40,7 +44,6 @@ workflows:
       - build/ios/ipa/*.ipa
       
     publishing:
-      # Автоматична відправка зібраного додатку клієнту в TestFlight
       app_store_connect:
         auth: integration
         submit_to_testflight: true
