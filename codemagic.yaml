@@ -7,7 +7,7 @@ workflows:
     
     # ВИПРАВЛЕННЯ 2: Підключення API-ключа клієнта
     integrations:
-      app_store_connect: "Car App" # <-- ЗАМІНІТЬ ЦЕ НА ТОЧНУ НАЗВУ КЛЮЧА
+      app_store_connect: "Car app" # <-- ЗАМІНІТЬ ЦЕ НА ТОЧНУ НАЗВУ КЛЮЧА
     
     environment:
       node: 22
