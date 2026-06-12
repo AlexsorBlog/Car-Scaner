@@ -6,11 +6,14 @@ workflows:
     working_directory: mobile_app
     
     integrations:
-      app_store_connect: "Car app" # Не забудьте вставити точну назву!
+      app_store_connect: "Car app" # <--- ВСТАВТЕ СЮДИ НАЗВУ ВАШОГО API-КЛЮЧА
     
     environment:
       node: 22
       xcode: latest
+      vars:
+        # ВСТАВТЕ ВАШ РЕАЛЬНИЙ BUNDLE ID ТУТ (наприклад: "com.йогокомпанія.carscanner")
+        APP_BUNDLE_ID: "CarSense.com.ua" 
         
     triggering:
       events:
@@ -30,12 +33,16 @@ workflows:
       - name: Sync Capacitor to iOS
         script: npx cap sync ios
         
-      # НОВИЙ ВАЖЛИВИЙ КРОК: Завантажуємо сертифікати через API-ключ
-      # НОВИЙ ВАЖЛИВИЙ КРОК: Ініціалізуємо ключі та завантажуємо сертифікати
+      # НОВИЙ КРОК: Примусово змінюємо Bundle ID в усьому проекті Xcode через термінал Mac
+      - name: Force Xcode Bundle ID (Bulletproof Fix)
+        script: |
+          sed -i '' "s/PRODUCT_BUNDLE_IDENTIFIER = [^;]*;/PRODUCT_BUNDLE_IDENTIFIER = $APP_BUNDLE_ID;/g" ios/App/App.xcodeproj/project.pbxproj
+        
       - name: Set up Automatic Code Signing
         script: |
           keychain initialize
-          app-store-connect fetch-signing-files $(xcode-project detect-bundle-id) \
+          # Явно просимо Apple сертифікат саме для вашого APP_BUNDLE_ID
+          app-store-connect fetch-signing-files $APP_BUNDLE_ID \
             --type IOS_APP_STORE \
             --create
           keychain add-certificates
