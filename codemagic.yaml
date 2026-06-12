@@ -5,17 +5,13 @@ workflows:
     max_build_duration: 60
     working_directory: mobile_app
     
-    # ВИПРАВЛЕННЯ 2: Підключення API-ключа клієнта
     integrations:
-      app_store_connect: "Car app" # <-- ЗАМІНІТЬ ЦЕ НА ТОЧНУ НАЗВУ КЛЮЧА
+      app_store_connect: "НАЗВА_ВАШОГО_КЛЮЧА_ТУТ" # Не забудьте вставити точну назву!
     
     environment:
       node: 22
       xcode: latest
-      groups:
-        - apple_credentials 
         
-    # ВИПРАВЛЕННЯ 1: Правильний синтаксис для тригера гілки
     triggering:
       events:
         - push
@@ -34,7 +30,16 @@ workflows:
       - name: Sync Capacitor to iOS
         script: npx cap sync ios
         
-      - name: Build IPA and Auto-Sign
+      # НОВИЙ ВАЖЛИВИЙ КРОК: Завантажуємо сертифікати через API-ключ
+      - name: Set up Automatic Code Signing
+        script: |
+          app-store-connect fetch-signing-files $(xcode-project detect-bundle-id) \
+            --type IOS_APP_STORE \
+            --create
+          keychain add-certificates
+          xcode-project use-profiles
+        
+      - name: Build IPA
         script: |
           xcode-project build-ipa \
             --project "ios/App/App.xcodeproj" \
