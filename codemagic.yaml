@@ -15,7 +15,7 @@ workflows:
       # ОСЬ ЦЯ МАГІЯ ВИРІШУЄ ВСЕ:
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: CarSense.com.ua # <--- ВПИШІТЬ СЮДИ РЕАЛЬНИЙ BUNDLE ID КЛІЄНТА
+        bundle_identifier: ua.com.carsense
         
     triggering:
       events:
