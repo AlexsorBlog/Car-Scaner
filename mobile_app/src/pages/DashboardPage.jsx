@@ -38,6 +38,14 @@ const WIDGET_ICONS = {
   DEFAULT: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 opacity-70"><circle cx="12" cy="12" r="10"/></svg>
 };
 
+// Add near the top of DashboardPage, after WIDGET_ICONS:
+const GRAPH_KEY_MAP = {
+  SPEED:        'speed',
+  RPM:          'rpm',
+  COOLANT_TEMP: 'temp',
+  FUEL_RATE:    'fuel',
+};
+
 const get24hData = (dataArray) => {
   if (!dataArray || dataArray.length === 0) return [];
   const cutoff = Date.now() - (24 * 60 * 60 * 1000);
@@ -343,6 +351,12 @@ export default function DashboardPage() {
   const hasAutoJumped = useRef(false);
   const [showMainGraph, setShowMainGraph] = useState(true);
 
+  const [graphZoomActive, setGraphZoomActive] = useState(false);
+  const pinchStartDist  = useRef(null);
+  const pinchStartZoom  = useRef(null);
+  const pinchStartPan   = useRef(null);
+  const pinchCenterPct  = useRef(null);
+
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [analysisResults, setAnalysisResults] = useState([]);
@@ -560,9 +574,18 @@ export default function DashboardPage() {
       const history = await getRecentTelemetry(50000, since);
       if (!isActive) return;
       
+      // Map graph IDs to the actual DB column names
+      const DB_FIELD_MAP = {
+        SPEED:        'speed',
+        RPM:          'rpm',
+        COOLANT_TEMP: 'temp',
+        FUEL_RATE:    'fuel',
+      };
+      const dbField = DB_FIELD_MAP[selectedGraph.id] || selectedGraph.id.toLowerCase();
+
       const formatted = history
-          .filter(d => d[selectedGraph.id.toLowerCase()] !== undefined)
-          .map(d => ({ t: d.timestamp, v: d[selectedGraph.id.toLowerCase()] }));
+          .filter(d => d[dbField] !== undefined && d[dbField] !== null)
+          .map(d => ({ t: d.timestamp, v: d[dbField] }));
       
       setDbGraphData(formatted);
       setIsGraphLoading(false);
@@ -578,7 +601,14 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!selectedGraph || isGraphLoading || hasAutoJumped.current) return;
     
-    const liveData = telemetry.history[selectedGraph.id.toLowerCase()] || [];
+    const HISTORY_KEY_MAP = {
+      SPEED:        'speed',
+      RPM:          'rpm', 
+      COOLANT_TEMP: 'temp',
+      FUEL_RATE:    'fuel',
+    };
+    const historyKey = HISTORY_KEY_MAP[selectedGraph.id] || selectedGraph.id.toLowerCase();
+    const liveData   = telemetry.history[historyKey] || [];
     if (dbGraphData.length > 0 || liveData.length > 0) {
         const now = Date.now();
         const lastLive = liveData.length > 0 ? liveData[liveData.length - 1].t : 0;
@@ -748,7 +778,7 @@ export default function DashboardPage() {
   const renderDetailedGraph = () => {
     if (!selectedGraph) return null;
     
-    const liveData = telemetry.history[selectedGraph.id.toLowerCase()] || [];
+    const liveData = telemetry.history[HISTORY_KEY_MAP[selectedGraph.id] || selectedGraph.id.toLowerCase()] || [];
     const dataMap = new Map();
     dbGraphData.forEach(d => dataMap.set(d.t, d.v));
     liveData.forEach(d => dataMap.set(d.t, d.v));
@@ -820,17 +850,55 @@ export default function DashboardPage() {
         segments.push(currentSegment);
     }
     
-    const handleTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
-    const handleTouchMove = (e) => {
-      if (touchStartX.current === null) return;
-      const currentX = e.touches[0].clientX;
-      const diffPixels = currentX - touchStartX.current;
-      const msPerPixel = WINDOW_MS / window.innerWidth;
-      
-      setPanOffsetMs(prev => Math.max(0, prev + (diffPixels * msPerPixel)));
-      touchStartX.current = currentX; 
+    const handleTouchStart = (e) => {
+      if (e.touches.length === 2) {
+        // Pinch start
+        const t1 = e.touches[0], t2 = e.touches[1];
+        pinchStartDist.current  = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+        pinchStartZoom.current  = graphZoomMs;
+        pinchStartPan.current   = panOffsetMs;
+        const rect = e.currentTarget.getBoundingClientRect();
+        pinchCenterPct.current  = ((t1.clientX + t2.clientX) / 2 - rect.left) / rect.width;
+        touchStartX.current     = null; // disable pan while pinching
+      } else if (e.touches.length === 1) {
+        touchStartX.current = e.touches[0].clientX;
+      }
     };
-    const handleTouchEnd = () => { touchStartX.current = null; };
+
+    const handleTouchMove = (e) => {
+      if (e.touches.length === 2 && pinchStartDist.current) {
+        // Pinch zoom
+        const t1 = e.touches[0], t2 = e.touches[1];
+        const currentDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+        const scale = pinchStartDist.current / currentDist; // inverse: pinch in = zoom in (smaller window)
+
+        const MIN_ZOOM = 30 * 1000;          // 30 seconds minimum
+        const MAX_ZOOM = 7 * 24 * 3600 * 1000; // 7 days maximum
+        const newZoom  = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinchStartZoom.current * scale));
+
+        // Keep the pinch center point fixed while zooming
+        const viewEndBefore  = Date.now() - pinchStartPan.current;
+        const viewStartBefore = viewEndBefore - pinchStartZoom.current;
+        const anchorTime     = viewStartBefore + pinchCenterPct.current * pinchStartZoom.current;
+        const newPanOffset   = Math.max(0, Date.now() - anchorTime - newZoom * (1 - pinchCenterPct.current));
+
+        setGraphZoomMs(newZoom);
+        setPanOffsetMs(newPanOffset);
+
+      } else if (e.touches.length === 1 && touchStartX.current !== null) {
+        // Pan
+        const currentX  = e.touches[0].clientX;
+        const diffPixels = currentX - touchStartX.current;
+        const msPerPixel = graphZoomMs / window.innerWidth;
+        setPanOffsetMs(prev => Math.max(0, prev - diffPixels * msPerPixel));
+        touchStartX.current = currentX;
+      }
+    };
+
+    const handleTouchEnd = (e) => {
+      if (e.touches.length < 2) pinchStartDist.current = null;
+      if (e.touches.length === 0) touchStartX.current = null;
+    };
 
     return (
       <div className="flex flex-col relative w-full h-full min-h-[350px]">
@@ -868,7 +936,7 @@ export default function DashboardPage() {
           )}
         </div>
         
-        <div className="flex-1 relative mt-2 border-b border-l border-gray-800/80 cursor-ew-resize touch-pan-x overflow-hidden" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+        <div className="flex-1 relative mt-2 border-b border-l border-gray-800/80 cursor-ew-resize overflow-hidden" style={{ touchAction: 'none' }} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
           {ySteps.map((pct, i) => {
              const val = min + (MathRange * pct);
              return (

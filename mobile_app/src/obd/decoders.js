@@ -217,32 +217,62 @@ export const evap_pressure      = (hex) => hex; // complex signed value — stub
 export const dtc_uds = (hex) => {
   if (!hex || hex.length < 6) return [];
 
-  const codes = [];
+  // ── Sanity guards ─────────────────────────────────────────────────────────
+
+  // Reject enormous payloads — real DTC responses have < 20 codes (< 160 bytes payload)
+  // Anything larger is a raw memory dump (e.g. from 1902FF on some ECUs)
+  if (hex.length > 400) {
+    console.warn('[dtc_uds] Payload too large (' + hex.length + ' chars), likely memory dump — rejecting');
+    return [];
+  }
+
+  // Reject payloads with unresolved CAN multi-frame markers (colon characters)
+  // These appear when the frame reassembly in _executeRawDTC didn't align correctly
+  if (hex.includes(':')) {
+    console.warn('[dtc_uds] Unresolved CAN frame markers found — rejecting');
+    return [];
+  }
+
+  // ── Parse ─────────────────────────────────────────────────────────────────
+
+  const codes   = [];
   const LETTERS = ['P', 'C', 'B', 'U'];
 
   const prefixIdx = hex.indexOf('5902');
   if (prefixIdx === -1) return [];
 
-  const data = hex.substring(prefixIdx + 6); // skip 5902 + mask byte
+  // Skip '5902' (2 bytes) + status availability mask (1 byte) = 6 hex chars
+  const data = hex.substring(prefixIdx + 6);
 
   for (let i = 0; i + 7 < data.length; i += 8) {
     const chunk = data.substring(i, i + 8);
+
+    // Skip null padding
     if (chunk.startsWith('000000')) continue;
+
+    // Skip CAN padding bytes (0xAA fill)
+    if (chunk.includes('AAAA')) continue;
 
     const byteA      = parseInt(chunk.substring(0, 2), 16);
     const byteB      = chunk.substring(2, 4);
     const byteC      = chunk.substring(4, 6);
-    const statusByte = parseInt(chunk.substring(6, 8), 16); // ← was silently ignored
+    const statusByte = parseInt(chunk.substring(6, 8), 16);
+
+    // Skip if byteA decoded to NaN (malformed chunk)
+    if (isNaN(byteA)) continue;
 
     const letter   = LETTERS[(byteA >> 6) & 0x03];
     const d1       = (byteA >> 4) & 0x03;
     const d2       = byteA & 0x0F;
     const baseCode = `${letter}${d1}${d2.toString(16).toUpperCase()}${byteB}`;
 
+    // Skip obviously malformed codes (contain non-hex characters)
+    if (!/^[PCBU][0-3][0-9A-F]{4}$/.test(baseCode)) continue;
+
     codes.push({
       base:       baseCode,
       full:       `${baseCode}-${byteC}`,
-      statusByte,           // ← new, carried forward
+      statusByte,
     });
   }
 

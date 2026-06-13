@@ -197,9 +197,9 @@ class OBDManager {
     const methods = [
       { cmd: '190209', dec: decoders.dtc_uds, isUds: true,  name: 'UDS 09' },
       { cmd: '190208', dec: decoders.dtc_uds, isUds: true,  name: 'UDS 08' },
-      { cmd: '19020C', dec: decoders.dtc_uds, isUds: true,  name: 'UDS 0C' },
+      // { cmd: '19020C', dec: decoders.dtc_uds, isUds: true,  name: 'UDS 0C' },
       { cmd: '190201', dec: decoders.dtc_uds, isUds: true,  name: 'UDS 01' },
-      { cmd: '1902FF', dec: decoders.dtc_uds, isUds: true,  name: 'UDS FF' },
+      // { cmd: '1902FF', dec: decoders.dtc_uds, isUds: true,  name: 'UDS FF' },
       { cmd: '03',     dec: decoders.dtc,     isUds: false, name: 'Mode 03' },
       { cmd: '07',     dec: decoders.dtc,     isUds: false, name: 'Mode 07' },
       { cmd: '0A',     dec: decoders.dtc,     isUds: false, name: 'Mode 0A' },
