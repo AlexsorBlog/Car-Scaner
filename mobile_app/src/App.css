@@ -68,23 +68,33 @@
   --sal: env(safe-area-inset-left);
 }
 
-body {
-  /* Відступи для статус-бару зверху та полоски знизу */
-  padding-top: var(--sat);
-  padding-bottom: var(--sab);
-  padding-left: var(--sal);
-  padding-right: var(--sar);
-  
-  /* Важливо, щоб фон був зафарбований у зонах відступу */
-  background-color: #050505; 
+html, body {
+  margin: 0;
+  padding: 0;
+  background-color: #050505;
+  height: 100%;
+  /* Prevent the whole page from rubber-banding/bouncing on iOS,
+     which is what causes content to slide under the notch on scroll */
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
 }
 
-/* Apply to the root app container so every page inherits it */
 #root {
+  /* Single source of truth for the top safe area */
   padding-top: var(--safe-top);
   padding-bottom: var(--safe-bottom);
-  min-height: 100vh;
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
   box-sizing: border-box;
+  background-color: #050505;
+
+  /* #root becomes the actual scroll container */
+  height: 100vh;
+  height: 100dvh; /* dynamic viewport height — accounts for iOS chrome */
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Utility classes if you need them on specific elements (modals, headers) */

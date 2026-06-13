@@ -304,7 +304,7 @@ export default function ServicesPage() {
 
   return (
     // 1. Бронебійний Flex-контейнер на всю висоту екрану
-    <div className="relative w-full bg-[#050505] overflow-hidden flex flex-col" style={{ height: '100dvh' }}>
+    <div className="relative w-full bg-[#050505] overflow-hidden h-full">
       
       {/* 2. Відступ для "чубчика" (Dynamic Island/Status Bar) */}
       <div style={{ height: 'var(--safe-top, env(safe-area-inset-top, 0px))' }} className="w-full shrink-0 bg-[#050505]"></div>

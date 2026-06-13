@@ -80,7 +80,7 @@ export default function ProfilePage() {
   };
 
   if (isLoading) {
-    return <div className="min-h-screen bg-[#050505] flex justify-center items-center"><div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div></div>;
+    return <div className=" bg-[#050505] flex justify-center items-center"><div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div></div>;
   }
 
   return (

@@ -56,7 +56,7 @@ export default function LoginPage() {
   // };
 
   return (
-    <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-6 font-sans">
+    <div className=" bg-[#050505] flex flex-col items-center justify-center p-6 font-sans">
       <div className="w-full max-w-sm bg-[#111318] rounded-3xl p-8 shadow-2xl border border-gray-800">
         
         <div className="flex justify-center mb-6">

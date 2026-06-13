@@ -60,7 +60,7 @@ export default function DiagnosticsPage() {
 
   if (telemetry.isLoading) {
     return (
-      <div className="min-h-screen bg-[#050505] flex justify-center items-center">
+      <div className=" bg-[#050505] flex justify-center items-center">
         <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
@@ -71,7 +71,7 @@ export default function DiagnosticsPage() {
   const hasErrors = !isClean;
 
   return (
-    <div className="p-5 flex flex-col gap-6 animate-in slide-in-from-right-4 duration-300 pb-28 min-h-screen bg-[#050505]">
+    <div className="p-5 flex flex-col gap-6 animate-in slide-in-from-right-4 duration-300 pb-28  bg-[#050505]">
       
       {/* HEADER */}
       <div className="flex justify-between items-center mt-2">

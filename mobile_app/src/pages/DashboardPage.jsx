@@ -1152,7 +1152,7 @@ export default function DashboardPage() {
     );
   };
 
-  if (telemetry.isLoading) return <div className="min-h-screen bg-[#050505] flex justify-center items-center"><div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div></div>;
+  if (telemetry.isLoading) return <div className="bg-[#050505] flex justify-center items-center"><div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div></div>;
 
   const filteredPerfRecords = perfRecords.filter(r => {
       const runData = r.data[0]?.telemetry || [];
@@ -1166,7 +1166,7 @@ export default function DashboardPage() {
   const recentPerfRecords = filteredPerfRecords.slice(0, 3);
 
   return (
-    <div className="p-5 flex flex-col gap-5 animate-in fade-in duration-500 min-h-screen bg-[#050505] text-white overflow-x-hidden pb-28">
+    <div className="p-5 flex flex-col gap-5 animate-in fade-in duration-500 bg-[#050505] text-white overflow-x-hidden pb-28">
       
       <div className="bg-[#111318] p-1 rounded-xl border border-gray-800/80 flex relative">
         <button onClick={toggleMode} disabled={telemetry.isConnected} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all z-10 ${useEmulator ? 'text-white' : 'text-gray-500'}`}>💻 ЕМУЛЯТОР</button>
