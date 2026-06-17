@@ -250,7 +250,6 @@ class BLEScanner {
         let hasWrite = false, hasNotify = false;
         for (const char of svc.characteristics) {
           const p = char.properties;
-          const p = char.properties;
           if (p.write || p.writeWithoutResponse) {
             hasWrite = true;
             this._writeCharId = char.uuid;
