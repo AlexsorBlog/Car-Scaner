@@ -47,6 +47,7 @@ class BLEScanner {
     this._mode       = TRANSPORT.EMULATOR;
     this._platform   = Capacitor.getPlatform(); // 'web' | 'android' | 'ios'
     this._connected  = false;
+    this._writeWithoutResponse = false;
 
     // WebSocket state
     this._ws         = null;
@@ -120,7 +121,7 @@ class BLEScanner {
     this._connected = false;
     this._cancelPending('Disconnected by user');
     this._buffer = '';
-
+    this._writeWithoutResponse = false;
     if (this._ws) {
       try { this._ws.close(); } catch (_) {}
       this._ws = null;
@@ -249,7 +250,12 @@ class BLEScanner {
         let hasWrite = false, hasNotify = false;
         for (const char of svc.characteristics) {
           const p = char.properties;
-          if (p.write || p.writeWithoutResponse) { hasWrite = true; this._writeCharId = char.uuid; }
+          const p = char.properties;
+          if (p.write || p.writeWithoutResponse) {
+            hasWrite = true;
+            this._writeCharId = char.uuid;
+            this._writeWithoutResponse = !p.write && p.writeWithoutResponse; // ← store the type
+          }
           if (p.notify || p.indicate) { hasNotify = true; this._notifyCharId = char.uuid; }
         }
         if (hasWrite && hasNotify) { this._serviceId = svc.uuid; break; }
@@ -259,7 +265,11 @@ class BLEScanner {
         this._log('Ideal UART service not found, trying fallback...', 'WARN');
         if (services.length > 0 && services[0].characteristics.length > 0) {
            this._serviceId = services[0].uuid;
-           this._writeCharId = services[0].characteristics.find(c => c.properties.write || c.properties.writeWithoutResponse)?.uuid;
+           const writeChar = services[0].characteristics.find(
+              c => c.properties.write || c.properties.writeWithoutResponse
+            );
+            this._writeCharId = writeChar?.uuid;
+            this._writeWithoutResponse = writeChar ? (!writeChar.properties.write && writeChar.properties.writeWithoutResponse) : false;
            this._notifyCharId = services[0].characteristics.find(c => c.properties.notify || c.properties.indicate)?.uuid;
         }
         if (!this._serviceId || !this._writeCharId || !this._notifyCharId) throw new Error('No compatible UART service found on device');
@@ -285,10 +295,35 @@ class BLEScanner {
       if (!this._deviceId) return reject(new Error('No BLE device'));
       this._setupPending(cmd, resolve, reject);
       try {
-        await BleClient.write(this._deviceId, this._serviceId, this._writeCharId, textToDataView(cmd + '\r'));
+        const data = textToDataView(cmd + '\r');
+        if (this._writeWithoutResponse) {
+          await BleClient.writeWithoutResponse(
+            this._deviceId, this._serviceId, this._writeCharId, data
+          );
+        } else {
+          await BleClient.write(
+            this._deviceId, this._serviceId, this._writeCharId, data
+          );
+        }
       } catch (err) {
-        this._cancelPending(err.message);
-        reject(err);
+        // Auto-fallback: if write fails with permission error, retry as writeWithoutResponse
+        if (err.message?.includes('permitted') || err.message?.includes('not permitted')) {
+          this._log('write() failed, falling back to writeWithoutResponse', 'WARN');
+          this._writeWithoutResponse = true;
+          try {
+            await BleClient.writeWithoutResponse(
+              this._deviceId, this._serviceId, this._writeCharId, textToDataView(cmd + '\r')
+            );
+            // Don't reject — the pending resolve will fire when notification comes back
+            return;
+          } catch (err2) {
+            this._cancelPending(err2.message);
+            reject(err2);
+          }
+        } else {
+          this._cancelPending(err.message);
+          reject(err);
+        }
       }
     });
   }
