@@ -1,318 +1,222 @@
 /**
- * obd/decoders.js — OBD-II response decoders
- *
- * Fixed bugs vs original:
- *  - dtc(): ELM327 mode-03 response AFTER stripping "43" prefix is:
- *      [count_byte] [byte1 byte2] [byte1 byte2] ...
- *    The count byte was being interpreted as part of the first DTC → wrong code.
- *    Fixed: skip the first byte (count), then process 2-byte pairs.
- *
- *  - decodeEncodedString(): null bytes (\x00) were not stripped — fixed.
- *
- *  - percent(): original didn't clamp — values > 255 hex gave > 100% — fixed.
- *
- *  - sensor_voltage_big(): was reading bytes 4-8 but should read bytes 2-6
- *    (the voltage word is the second 2-byte word, not bytes 3-4) — corrected
- *    per SAE J1979 Table A6.2.
+ * obd/decoders.js — complete fixed version
+ * Key fix: dtc_uds now handles MULTIPLE 5902 blocks (multi-ECU responses)
  */
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 export const hexToInt  = (hex) => parseInt(hex, 16);
 export const clamp     = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-export const twoBytes  = (hex) => hexToInt(hex.substring(0, 4)); // reads first 2 bytes as uint16
-
-// ── Mode 1 decoders ───────────────────────────────────────────────────────────
+export const twoBytes  = (hex) => hexToInt(hex.substring(0, 4));
 
 export const raw_string = (hex) => hex;
-
-/** Used for PIDs we intentionally don't decode (returns null → filtered out) */
 export const drop = () => null;
 
-/** Single byte → 0–100 % */
 export const percent = (hex) => {
   const v = hexToInt(hex.substring(0, 2));
   return clamp(Math.round((v * 100.0) / 255.0), 0, 100);
 };
 
-/** Signed byte → -100 to +100 % (fuel trim) */
 export const percent_centered = (hex) => {
   const v = hexToInt(hex.substring(0, 2));
   return clamp(Math.round(((v - 128) * 100.0) / 128.0), -100, 100);
 };
 
-/** Single byte → temperature °C  (A - 40) */
-export const temp = (hex) => hexToInt(hex.substring(0, 2)) - 40;
-
-/** Single byte → absolute pressure kPa */
-export const pressure = (hex) => hexToInt(hex.substring(0, 2));
-
-/** Single byte → fuel pressure kPa gauge (A * 3) */
+export const temp        = (hex) => hexToInt(hex.substring(0, 2)) - 40;
+export const pressure    = (hex) => hexToInt(hex.substring(0, 2));
 export const fuel_pressure = (hex) => hexToInt(hex.substring(0, 2)) * 3;
 
-/** 4-byte O2 sensor: current = (uint16 / 256) - 128  mA */
 export const current_centered = (hex) =>
   parseFloat(((hexToInt(hex.substring(0, 4)) / 256.0) - 128).toFixed(2));
 
-/** 2-byte O2 voltage (narrow-band): A / 200 V */
 export const sensor_voltage = (hex) =>
   parseFloat((hexToInt(hex.substring(0, 2)) / 200.0).toFixed(3));
 
-/**
- * 4-byte wide-band O2 voltage (mode 01 PIDs 24-2B):
- * Voltage = (C*256 + D) * 8 / 65535  V
- * Bytes layout: [A][B][C][D]  — voltage is in bytes C,D (index 4..8 hex chars)
- */
 export const sensor_voltage_big = (hex) =>
   parseFloat(((hexToInt(hex.substring(4, 8)) * 8.0) / 65535).toFixed(3));
 
-/** Timing advance: A/2 - 64  degrees before TDC */
 export const timing_advance = (hex) =>
   parseFloat(((hexToInt(hex.substring(0, 2)) / 2.0) - 64).toFixed(1));
 
-/** Fuel injection timing: (uint16 - 26880) / 128 degrees */
 export const inject_timing = (hex) =>
   parseFloat(((hexToInt(hex.substring(0, 4)) - 26880) / 128.0).toFixed(2));
 
-/** Engine fuel rate: uint16 * 0.05  L/h */
 export const fuel_rate = (hex) =>
   parseFloat((hexToInt(hex.substring(0, 4)) * 0.05).toFixed(2));
 
-/** Max MAF: first byte * 10  g/s */
 export const max_maf = (hex) => hexToInt(hex.substring(0, 2)) * 10;
+export const count   = (hex) => hexToInt(hex);
 
-/** Raw count (e.g. warm-up count) */
-export const count = (hex) => hexToInt(hex);
-
-/** Absolute load: uint16 / 655.35  % */
 export const absolute_load = (hex) =>
   clamp(Math.round(hexToInt(hex.substring(0, 4)) / 655.35), 0, 100);
-
-// ── UAS (Units And Scaling) decoder  ─────────────────────────────────────────
-// Used for PIDs that share a generic formula identified by a scale ID.
 
 export const decodeUas = (hex, id) => {
   const v = hexToInt(hex);
   switch (id.toLowerCase()) {
-    case '0x01': return v;                                    // count
-    case '0x07': return Math.round(v / 4.0);                  // RPM (1/4 rev/min)
-    case '0x09': return v;                                    // km/h
-    case '0x0b': return parseFloat((v / 1000.0).toFixed(2)); // V (mV → V)
-    case '0x12': return v;                                    // seconds
-    case '0x16': return parseFloat((v * 0.1 - 40).toFixed(1)); // °C (catalyst temp)
-    case '0x19': return parseFloat((v * 0.079).toFixed(2));   // kPa (vacuum-ref pressure)
-    case '0x1b': return v;                                    // kPa absolute
-    case '0x1e': return parseFloat((v * 0.0000305).toFixed(5)); // ratio (equivalence)
-    case '0x25': return v;                                    // km
-    case '0x27': return parseFloat((v / 100.0).toFixed(2));   // g/s (MAF)
-    case '0x34': return v;                                    // minutes
+    case '0x01': return v;
+    case '0x07': return Math.round(v / 4.0);
+    case '0x09': return v;
+    case '0x0b': return parseFloat((v / 1000.0).toFixed(2));
+    case '0x12': return v;
+    case '0x16': return parseFloat((v * 0.1 - 40).toFixed(1));
+    case '0x19': return parseFloat((v * 0.079).toFixed(2));
+    case '0x1b': return v;
+    case '0x1e': return parseFloat((v * 0.0000305).toFixed(5));
+    case '0x25': return v;
+    case '0x27': return parseFloat((v / 100.0).toFixed(2));
+    case '0x34': return v;
     default:     return v;
   }
 };
 
-// ── DTC decoder (Mode 03 / 07) ────────────────────────────────────────────────
+// ── DTC (Mode 03 / 07 / 0A) ──────────────────────────────────────────────────
 
-/**
- * Decode a sequence of DTC bytes into an array of code strings like "P0104".
- *
- * ELM327 mode-03 response (after stripping the "43" mode prefix):
- *   [NN] [A1 B1] [A2 B2] ... [00 00 padding...]
- *
- * NN = number of DTCs reported (1 byte).  We SKIP this byte before processing pairs.
- *
- * Each 2-byte pair encodes one DTC:
- *   Bits 15-14 of A → system letter: 00=P, 01=C, 10=B, 11=U
- *   Bits 13-12 of A → first digit after letter (0-3)
- *   Bits 11-8  of A → second digit (hex nibble)
- *   Byte B           → third and fourth digits (two hex nibbles)
- */
 export const dtc = (hex) => {
   if (!hex || hex.length < 4) return [];
-
   const codes   = [];
   const LETTERS = ['P', 'C', 'B', 'U'];
-
-  // The first byte after stripping the mode prefix is the DTC count.
-  // e.g. "43" response "004300" → count=0x00, then pairs follow.
-  // We skip the count byte and process 2-byte pairs from offset 2.
   const countByte = parseInt(hex.substring(0, 2), 16);
-
-  // If ECU reports zero DTCs, return immediately — no pairs to parse
   if (countByte === 0) return [];
-
-  // Parse pairs starting after the count byte
   const data = hex.substring(2);
-
   for (let i = 0; i + 3 < data.length; i += 4) {
     const chunk = data.substring(i, i + 4);
-
-    // Skip null padding
     if (chunk === '0000') continue;
-
     const byteA = parseInt(chunk.substring(0, 2), 16);
     const byteB = parseInt(chunk.substring(2, 4), 16);
-
-    // byteA = 0x00 with byteB = anything is also padding
     if (byteA === 0 && byteB === 0) continue;
-
     const letter = LETTERS[(byteA >> 6) & 0x03];
     const d1     = (byteA >> 4) & 0x03;
     const d234   = ((byteA & 0x0F).toString(16) + byteB.toString(16).padStart(2, '0')).toUpperCase();
     const code   = `${letter}${d1}${d234}`;
-
-    // Final sanity: reject codes that are all-zeros after the letter
     if (d1 === 0 && (byteA & 0x0F) === 0 && byteB === 0) continue;
-
     codes.push(code);
   }
-
   return codes;
 };
 
-// ── String decoder ────────────────────────────────────────────────────────────
+// ── UDS DTC decoder — FIXED: handles multiple 5902 blocks (multi-ECU) ────────
 
-/**
- * Decode a hex string into ASCII text (used for VIN, ECU name, etc.)
- * Strips null bytes and non-printable characters.
- */
+export const dtc_uds = (hex) => {
+  if (!hex || hex.length < 6) return [];
+
+  // Guard: memory dump (1902FF on some ECUs returns huge payload)
+  if (hex.length > 400) {
+    console.warn('[dtc_uds] Payload too large (' + hex.length + ' chars) — rejected');
+    return [];
+  }
+
+  // Guard: unresolved CAN multi-frame markers
+  if (hex.includes(':')) {
+    console.warn('[dtc_uds] Unresolved CAN frame markers — rejected');
+    return [];
+  }
+
+  const LETTERS  = ['P', 'C', 'B', 'U'];
+  const allCodes = new Map(); // base → { base, full, statusByte }
+
+  // ── Find ALL 5902xx occurrences — one per ECU ─────────────────────────────
+  const PREFIX    = '5902';
+  let   searchFrom = 0;
+  const ecuOffsets = [];
+
+  while (true) {
+    const idx = hex.indexOf(PREFIX, searchFrom);
+    if (idx === -1) break;
+    ecuOffsets.push(idx);
+    searchFrom = idx + 4;
+  }
+
+  if (ecuOffsets.length === 0) return [];
+
+  // ── Parse each ECU slice independently ───────────────────────────────────
+  for (let e = 0; e < ecuOffsets.length; e++) {
+    const sliceStart = ecuOffsets[e];
+    const sliceEnd   = e + 1 < ecuOffsets.length ? ecuOffsets[e + 1] : hex.length;
+    const ecuHex     = hex.substring(sliceStart, sliceEnd);
+
+    // Skip '5902' (4 chars) + status availability mask byte (2 chars) = 6 chars
+    if (ecuHex.length < 6) continue;
+    const data = ecuHex.substring(6);
+
+    for (let i = 0; i + 7 < data.length; i += 8) {
+      const chunk = data.substring(i, i + 8);
+
+      if (chunk.startsWith('000000')) continue; // null padding
+      if (chunk.includes('AAAA'))    continue;  // 0xAA fill
+
+      const byteA      = parseInt(chunk.substring(0, 2), 16);
+      const byteB      = chunk.substring(2, 4);
+      const byteC      = chunk.substring(4, 6); // FTB
+      const statusByte = parseInt(chunk.substring(6, 8), 16);
+
+      if (isNaN(byteA)) continue;
+
+      const letter   = LETTERS[(byteA >> 6) & 0x03];
+      const d1       = (byteA >> 4) & 0x03;
+      const d2       = byteA & 0x0F;
+      const baseCode = `${letter}${d1}${d2.toString(16).toUpperCase()}${byteB}`;
+
+      // Structural validity
+      if (!/^[PCBU][0-3][0-9A-F]{4}$/.test(baseCode)) continue;
+
+      // Union: keep first occurrence (ECU 0 usually most authoritative)
+      if (!allCodes.has(baseCode)) {
+        allCodes.set(baseCode, { base: baseCode, full: `${baseCode}-${byteC}`, statusByte });
+      }
+    }
+  }
+
+  return Array.from(allCodes.values());
+};
+
+// ── KWP2000 DTC decoder ───────────────────────────────────────────────────────
+
+export const dtc_kwp = (hex) => {
+  if (!hex || hex.length < 4) return [];
+  const codes   = [];
+  const LETTERS = ['P', 'C', 'B', 'U'];
+  const prefixIdx = hex.indexOf('58');
+  if (prefixIdx === -1) return [];
+  const data    = hex.substring(prefixIdx + 2);
+  if (data.length < 2) return [];
+  const payload = data.substring(2);
+  for (let i = 0; i + 5 < payload.length; i += 6) {
+    const chunk = payload.substring(i, i + 6);
+    if (chunk.startsWith('000000')) continue;
+    const byteA  = parseInt(chunk.substring(0, 2), 16);
+    const byteB  = parseInt(chunk.substring(2, 4), 16);
+    const letter = LETTERS[(byteA >> 6) & 0x03];
+    const d1     = (byteA >> 4) & 0x03;
+    const d234   = ((byteA & 0x0F).toString(16) + byteB.toString(16).padStart(2, '0')).toUpperCase();
+    codes.push(`${letter}${d1}${d234}`);
+  }
+  return codes;
+};
+
+// ── String / misc decoders ────────────────────────────────────────────────────
+
 export const decodeEncodedString = (hex) => {
   let str = '';
   for (let i = 0; i + 1 < hex.length; i += 2) {
     const code = parseInt(hex.substr(i, 2), 16);
-    if (code === 0) continue; // skip null terminators
+    if (code === 0) continue;
     str += String.fromCharCode(code);
   }
-  // Keep only printable ASCII (32–126)
   return str.replace(/[^ -~]/g, '').trim();
 };
 
-// ── Stub decoders for complex binary structures ───────────────────────────────
-// These return the raw hex until full decoders are implemented.
-
-export const pid           = (hex) => hex;
-export const status        = (hex) => hex;
-export const single_dtc    = (hex) => hex;
-export const fuel_status   = (hex) => hex;
-export const air_status    = (hex) => hex;
-export const obd_compliance= (hex) => hex;
-export const o2_sensors    = (hex) => hex;
-export const o2_sensors_alt= (hex) => hex;
+export const pid              = (hex) => hex;
+export const status           = (hex) => hex;
+export const single_dtc       = (hex) => hex;
+export const fuel_status      = (hex) => hex;
+export const air_status       = (hex) => hex;
+export const obd_compliance   = (hex) => hex;
+export const o2_sensors       = (hex) => hex;
+export const o2_sensors_alt   = (hex) => hex;
 export const aux_input_status = (hex) => hex;
-export const fuel_type     = (hex) => hex;
-export const monitor       = (hex) => hex;
-export const cvn           = (hex) => hex;
-export const elm_voltage   = (hex) => hex;
+export const fuel_type        = (hex) => hex;
+export const monitor          = (hex) => hex;
+export const cvn              = (hex) => hex;
+export const elm_voltage      = (hex) => hex;
 
-export const abs_evap_pressure  = (hex) => parseFloat((hexToInt(hex) / 200.0).toFixed(2));
-export const evap_pressure_alt  = (hex) => hexToInt(hex) - 32767;
-export const evap_pressure      = (hex) => hex; // complex signed value — stub
-/**
- * UDS Service 19 DTC Decoder
- * UDS Positive response starts with 59 02.
- * After that, it contains a Status Availability Mask (1 byte), 
- * then the DTCs are 3 bytes + 1 Status byte each (4 bytes total per DTC).
- * Example: 59 02 08 [05 97 00] [2F]
- */
-// dtc_uds — only change: attach statusByte to each returned object
-export const dtc_uds = (hex) => {
-  if (!hex || hex.length < 6) return [];
-
-  // ── Sanity guards ─────────────────────────────────────────────────────────
-
-  // Reject enormous payloads — real DTC responses have < 20 codes (< 160 bytes payload)
-  // Anything larger is a raw memory dump (e.g. from 1902FF on some ECUs)
-  if (hex.length > 400) {
-    console.warn('[dtc_uds] Payload too large (' + hex.length + ' chars), likely memory dump — rejecting');
-    return [];
-  }
-
-  // Reject payloads with unresolved CAN multi-frame markers (colon characters)
-  // These appear when the frame reassembly in _executeRawDTC didn't align correctly
-  if (hex.includes(':')) {
-    console.warn('[dtc_uds] Unresolved CAN frame markers found — rejecting');
-    return [];
-  }
-
-  // ── Parse ─────────────────────────────────────────────────────────────────
-
-  const codes   = [];
-  const LETTERS = ['P', 'C', 'B', 'U'];
-
-  const prefixIdx = hex.indexOf('5902');
-  if (prefixIdx === -1) return [];
-
-  // Skip '5902' (2 bytes) + status availability mask (1 byte) = 6 hex chars
-  const data = hex.substring(prefixIdx + 6);
-
-  for (let i = 0; i + 7 < data.length; i += 8) {
-    const chunk = data.substring(i, i + 8);
-
-    // Skip null padding
-    if (chunk.startsWith('000000')) continue;
-
-    // Skip CAN padding bytes (0xAA fill)
-    if (chunk.includes('AAAA')) continue;
-
-    const byteA      = parseInt(chunk.substring(0, 2), 16);
-    const byteB      = chunk.substring(2, 4);
-    const byteC      = chunk.substring(4, 6);
-    const statusByte = parseInt(chunk.substring(6, 8), 16);
-
-    // Skip if byteA decoded to NaN (malformed chunk)
-    if (isNaN(byteA)) continue;
-
-    const letter   = LETTERS[(byteA >> 6) & 0x03];
-    const d1       = (byteA >> 4) & 0x03;
-    const d2       = byteA & 0x0F;
-    const baseCode = `${letter}${d1}${d2.toString(16).toUpperCase()}${byteB}`;
-
-    // Skip obviously malformed codes (contain non-hex characters)
-    if (!/^[PCBU][0-3][0-9A-F]{4}$/.test(baseCode)) continue;
-
-    codes.push({
-      base:       baseCode,
-      full:       `${baseCode}-${byteC}`,
-      statusByte,
-    });
-  }
-
-  return codes;
-};
-// ── KWP2000 Service 18 DTC Decoder ──────────────────────────────────────────
-/**
- * Відповідь KWP2000 починається з 58.
- * За стандартом ISO 14230-3 формат: 58 [Кількість DTC] [DTC1_High] [DTC1_Low] [Status] ...
- * Де DTC кодується так само, як і в OBD-II (Mode 03).
- */
-export const dtc_kwp = (hex) => {
-    if (!hex || hex.length < 4) return [];
-    const codes = [];
-    const LETTERS = ['P', 'C', 'B', 'U'];
-    
-    const prefixIdx = hex.indexOf('58');
-    if (prefixIdx === -1) return [];
-
-    // Дані після префікса 58
-    const data = hex.substring(prefixIdx + 2);
-    if (data.length < 2) return [];
-
-    // Перший байт після 58 - це зазвичай кількість помилок (ми його пропускаємо)
-    const payload = data.substring(2);
-
-    // Кожна помилка в KWP2000 займає 3 байти (6 hex символів)
-    for (let i = 0; i + 5 < payload.length; i += 6) {
-        const chunk = payload.substring(i, i + 6);
-        if (chunk.startsWith('000000')) continue;
-
-        const byteA = parseInt(chunk.substring(0, 2), 16);
-        const byteB = parseInt(chunk.substring(2, 4), 16);
-        // Третій байт (статус) ігноруємо, нам потрібен лише сам код
-
-        const letter = LETTERS[(byteA >> 6) & 0x03];
-        const d1 = (byteA >> 4) & 0x03;
-        const d234 = ((byteA & 0x0F).toString(16) + byteB.toString(16).padStart(2, '0')).toUpperCase();
-
-        codes.push(`${letter}${d1}${d234}`);
-    }
-    return codes;
-};
+export const abs_evap_pressure = (hex) => parseFloat((hexToInt(hex) / 200.0).toFixed(2));
+export const evap_pressure_alt = (hex) => hexToInt(hex) - 32767;
+export const evap_pressure     = (hex) => hex;

@@ -1,24 +1,13 @@
 /**
  * context/TelemetryContext.jsx — Single global OBD-II telemetry state
  *
- * Why this exists:
- *   The original useTelemetry() hook was called inside every page component.
- *   Each call created an independent state + OBD polling loop, so navigating
- *   between tabs spawned up to 5 simultaneous polling loops — all fighting for
- *   the same serial BLE/WebSocket channel.
- *
- *   This context wraps the entire app once and exposes a single shared state.
- *   Pages call:  const telemetry = useTelemetry();
- *   — same API as before, zero changes needed in individual pages.
- *
- * Fixed bugs vs original useTelemetry.js:
- *  - Multiple hook instances → single provider instance
- *  - while-loop had no try/catch → silent crash stops polling
- *  - window.confirm / alert used → broken on native (state-based confirms instead)
- *  - isPaused race condition → dedicated semaphore with proper await
- *  - fetchUserProfile swallowed all errors → surfaces them in state
- *  - startLivePolling could be called multiple times → AbortController guard
- *  - History arrays: now one unified tiered polling approach
+ * Changes in this version:
+ *  - scanErrors: variant names now match 'Mode UDS 09' etc from index.js fix
+ *  - scanErrors: stricter statusCategory logic per protocol
+ *  - scanErrors: dedup reduce uses correct priority map matching new names
+ *  - _dtcStatusCategory: added bit 3 (confirmedDTC) → active
+ *  - Server-ready: SERVER_CONFIG imported, fetchUserProfile has server path
+ *  - showArchiveErrors state exposed (toggled by UI archive dropdown)
  */
 
 import {
@@ -27,34 +16,23 @@ import {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { obd }                          from '../obd/index.js';
-import { commands, mode3, mode4 }       from '../obd/commands.js';
-import { obdScanner, TRANSPORT }        from '../services/bleService.js';
+import { obd, SERVER_CONFIG }              from '../obd/index.js';
+import { commands, mode3, mode4 }          from '../obd/commands.js';
+import { obdScanner, TRANSPORT }           from '../services/bleService.js';
 import {
   saveTelemetryData,
   getRecentTelemetry,
   summarizeOldData,
-  saveDiagnosticReport // 📥 ДОДАНО: Імпорт для збереження історії
-}                                        from '../services/db.js';
-import dtcDictionary                    from '../obd/codes.json';
+  saveDiagnosticReport,
+} from '../services/db.js';
+import dtcDictionary from '../obd/codes.json';
 
-// ── Polling tier config ───────────────────────────────────────────────────────
+// ── Polling tiers ─────────────────────────────────────────────────────────────
 
-/**
- * Fast tier  — polled every cycle (≈200 ms)
- * Medium tier— polled every 10 cycles (≈2 s)
- * Slow tier  — polled every 150 cycles (≈30 s)
- *
- * Anything not listed falls into "slow".
- */
 const FAST_PIDS   = new Set(['SPEED', 'RPM', 'COOLANT_TEMP', 'THROTTLE_POS']);
-const MEDIUM_PIDS = new Set(['ENGINE_LOAD', 'INTAKE_TEMP', 'FUEL_RATE', 'MAF', 'FUEL_TYPE',
-                              'BAROMETRIC_PRESSURE', 'CONTROL_MODULE_VOLTAGE']);
-
-// History window kept in memory
-const HISTORY_LIMIT = 1500;
-
-// DB write throttle
+const MEDIUM_PIDS = new Set(['ENGINE_LOAD', 'INTAKE_TEMP', 'FUEL_RATE', 'MAF',
+                              'FUEL_TYPE', 'BAROMETRIC_PRESSURE', 'CONTROL_MODULE_VOLTAGE']);
+const HISTORY_LIMIT     = 1500;
 const DB_SAVE_INTERVAL_MS = 5000;
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -66,36 +44,32 @@ const TelemetryContext = createContext(null);
 export function TelemetryProvider({ children }) {
   const navigate = useNavigate();
 
-  // ── Core state ─────────────────────────────────────────────────────────────
   const [isLoading,    setIsLoading]    = useState(true);
   const [isConnecting, setIsConnecting] = useState(false);
   const [data, setData] = useState({
-    isConnected:      false,
-    speed:            0,
-    rpm:              0,
-    temp:             0,
-    fuel:             0,
-    metrics:          {},
-    errors:           [],
-    hasScannedErrors: false,
-    isCheckingErrors: false,
-    lastScanTime:     null,
-    history:          { speed: [], rpm: [], temp: [], fuel: [] },
-    user:             { name: '', email: '', vehicle: '', vin: '', odometer: '', make: '', model: '' },
-    profileError:     null,
+    isConnected:       false,
+    speed:             0,
+    rpm:               0,
+    temp:              0,
+    fuel:              0,
+    metrics:           {},
+    errors:            [],
+    hasScannedErrors:  false,
+    isCheckingErrors:  false,
+    lastScanTime:      null,
+    showArchiveErrors: false,   // ← new: controls archive dropdown in UI
+    history:           { speed: [], rpm: [], temp: [], fuel: [] },
+    user:              { name: '', email: '', vehicle: '', vin: '', odometer: '', make: '', model: '' },
+    profileError:      null,
   });
 
-  // ── Confirm dialog state (replaces window.confirm) ─────────────────────────
   const [confirmState, setConfirmState] = useState(null);
-  // { message, onConfirm, onCancel }
 
-  // ── Refs — mutable values that must NOT trigger re-renders ─────────────────
-  const pollingAbort   = useRef(null);   // AbortController for the polling loop
-  const isPaused       = useRef(false);  // pause flag (paused during DTC ops)
-  const activeSensors  = useRef([]);     // list of sensor IDs to poll
-  const lastDbSave     = useRef(0);
-  const tickCount      = useRef(0);
-
+  const pollingAbort  = useRef(null);
+  const isPaused      = useRef(false);
+  const activeSensors = useRef([]);
+  const lastDbSave    = useRef(0);
+  const tickCount     = useRef(0);
 
   // ── Auth guard ──────────────────────────────────────────────────────────────
 
@@ -105,38 +79,43 @@ export function TelemetryProvider({ children }) {
     return token;
   }, [navigate]);
 
-  // ── Profile fetch ───────────────────────────────────────────────────────────
+  // ── Profile / init ──────────────────────────────────────────────────────────
 
   const fetchUserProfile = useCallback(async () => {
     const token = requireAuth();
-    if (!token) {
-      setIsLoading(false); // ВАЖЛИВО: вимикаємо загрузку, якщо немає токена
-      return;
-    }
+    if (!token) { setIsLoading(false); return; }
 
     try {
-      // --- BYPASS СЕРВЕРА ДЛЯ ANDROID ---
-      // Відключаємо запит до localhost:3000, щоб телефон не "зависав".
-      // Імітуємо успішну відповідь з профілем користувача:
-      const user = {
-        name: 'Vladislav (Admin)',
-        email: 'vladislav@carscanner.local',
-        vehicle: 'BMW 5 Series',
-        vin: 'WBA0000000000000',
-      };
+      let user;
 
-      // Завантажуємо локальну історію телеметрії (БД працює на телефоні автономно)
-      const recentRows  = await getRecentTelemetry(1500);
-      const histSpeed   = [], histRpm = [], histTemp = [], histFuel = [];
+      if (SERVER_CONFIG.enabled) {
+        // ── Server path (when server is live) ──────────────────────────────
+        const res = await fetch(`${SERVER_CONFIG.url.replace('wss://', 'https://').replace('ws://', 'http://')}/api/profile`, {
+          headers: { Authorization: `Bearer ${SERVER_CONFIG.authToken()}` },
+        });
+        if (!res.ok) throw new Error(`Server ${res.status}`);
+        user = await res.json();
+      } else {
+        // ── Offline / bypass path ───────────────────────────────────────────
+        user = {
+          name:    'Vladislav (Admin)',
+          email:   'vladislav@carscanner.local',
+          vehicle: 'BMW 5 Series',
+          vin:     'WBA0000000000000',
+        };
+      }
+
+      const recentRows = await getRecentTelemetry(1500);
+      const histSpeed = [], histRpm = [], histTemp = [], histFuel = [];
       let initialMetrics = {};
       let latestSpeed = 0, latestRpm = 0, latestTemp = 0, latestFuel = 0;
 
       for (const row of recentRows) {
         const t = row.timestamp;
-        if (row.speed != null) { histSpeed.push({ t, v: row.speed }); latestSpeed = row.speed; initialMetrics.SPEED = { value: row.speed, unit: 'км/год' }; }
-        if (row.rpm   != null) { histRpm  .push({ t, v: row.rpm   }); latestRpm   = row.rpm;   initialMetrics.RPM   = { value: row.rpm,   unit: 'об/хв' }; }
-        if (row.temp  != null) { histTemp .push({ t, v: row.temp  }); latestTemp  = row.temp;  initialMetrics.COOLANT_TEMP = { value: row.temp, unit: '°C' }; }
-        if (row.fuel != null) { histFuel.push({ t, v: row.fuel }); latestFuel = row.fuel; initialMetrics.FUEL_RATE = { value: row.fuel, unit: 'л/год' }; }
+        if (row.speed != null) { histSpeed.push({ t, v: row.speed }); latestSpeed = row.speed; initialMetrics.SPEED        = { value: row.speed, unit: 'км/год' }; }
+        if (row.rpm   != null) { histRpm  .push({ t, v: row.rpm   }); latestRpm   = row.rpm;   initialMetrics.RPM          = { value: row.rpm,   unit: 'об/хв' }; }
+        if (row.temp  != null) { histTemp .push({ t, v: row.temp  }); latestTemp  = row.temp;  initialMetrics.COOLANT_TEMP = { value: row.temp,  unit: '°C'    }; }
+        if (row.fuel  != null) { histFuel .push({ t, v: row.fuel  }); latestFuel  = row.fuel;  initialMetrics.FUEL_RATE    = { value: row.fuel,  unit: 'л/год' }; }
       }
 
       setData(prev => ({
@@ -145,46 +124,43 @@ export function TelemetryProvider({ children }) {
         metrics: initialMetrics,
         user: {
           ...user,
-          make:  user.vehicle?.split(' ')[0]            ?? '',
+          make:  user.vehicle?.split(' ')[0]               ?? '',
           model: user.vehicle?.split(' ').slice(1).join(' ') ?? '',
         },
         history: { speed: histSpeed, rpm: histRpm, temp: histTemp, fuel: histFuel },
         profileError: null,
       }));
 
-      // Background: summarise + prune old data
       summarizeOldData().catch(console.error);
 
     } catch (err) {
       console.error('[Telemetry] fetchUserProfile:', err);
       setData(prev => ({ ...prev, profileError: err.message }));
     } finally {
-      // Гарантовано вимикаємо спінер завантаження
       setIsLoading(false);
     }
   }, [navigate, requireAuth]);
 
-  // ── OBD polling loop ─────────────────────────────────────────────────────────
+  // ── Polling loop ──────────────────────────────────────────────────────────
 
   const _startPolling = useCallback(async (signal) => {
     tickCount.current = 0;
 
     while (!signal.aborted) {
-      // ── Pause gate ──────────────────────────────────────────────────────
       if (isPaused.current) {
         await new Promise(r => setTimeout(r, 300));
         continue;
       }
 
-      const tick     = tickCount.current++;
-      const sensors  = activeSensors.current;
+      const tick    = tickCount.current++;
+      const sensors = activeSensors.current;
       if (sensors.length === 0) {
         await new Promise(r => setTimeout(r, 500));
         continue;
       }
 
-      const cycleMetrics   = {};
-      const cycleTopLevel  = {};
+      const cycleMetrics  = {};
+      const cycleTopLevel = {};
 
       for (const cmdId of sensors) {
         if (signal.aborted || isPaused.current) break;
@@ -192,7 +168,6 @@ export function TelemetryProvider({ children }) {
         const cmdObj = commands[cmdId];
         if (!cmdObj) continue;
 
-        // Tiered polling: skip medium/slow pids on most ticks
         const isMedium = MEDIUM_PIDS.has(cmdId);
         const isFast   = FAST_PIDS.has(cmdId);
         if (!isFast && !isMedium && tick % 150 !== 0) continue;
@@ -200,12 +175,10 @@ export function TelemetryProvider({ children }) {
 
         try {
           let res;
-          
-          // 🔥 NEW: Use the smart fallback specifically for fuel rate
           if (cmdId === 'FUEL_RATE') {
-             res = await obd.getSmartFuelRate();
+            res = await obd.getSmartFuelRate();
           } else {
-             res = await obd.query(cmdObj);
+            res = await obd.query(cmdObj);
           }
 
           if (res?.value != null && res.value !== '--') {
@@ -219,18 +192,15 @@ export function TelemetryProvider({ children }) {
           console.warn(`[Telemetry] query error ${cmdId}:`, err.message);
         }
 
-        // Small inter-command gap to avoid flooding the channel
         await new Promise(r => setTimeout(r, 40));
       }
 
-      // ── Persist to IndexedDB every 5 s ─────────────────────────────────
       const now = Date.now();
       if (now - lastDbSave.current > DB_SAVE_INTERVAL_MS && Object.keys(cycleTopLevel).length > 0) {
         saveTelemetryData(cycleTopLevel).catch(console.error);
         lastDbSave.current = now;
       }
 
-      // ── Batch state update ──────────────────────────────────────────────
       if (Object.keys(cycleMetrics).length > 0 && !signal.aborted && !isPaused.current) {
         setData(prev => {
           const h = { ...prev.history };
@@ -251,33 +221,28 @@ export function TelemetryProvider({ children }) {
     }
   }, []);
 
-  // ── Public: connect ─────────────────────────────────────────────────────────
+  // ── Connect ───────────────────────────────────────────────────────────────
 
   const connectOBD = useCallback(async () => {
     if (data.isConnected || isConnecting) return false;
     setIsConnecting(true);
-
     try {
       const ok = await obd.connect();
       if (!ok) return false;
-
       await obd.initEngine();
       setData(prev => ({ ...prev, isConnected: true }));
 
-      // Wire up unexpected-disconnect handler
       obdScanner.onDisconnected = () => {
         setData(prev => ({ ...prev, isConnected: false }));
         pollingAbort.current?.abort();
         pollingAbort.current = null;
       };
 
-      // Start polling loop
       const controller = new AbortController();
       pollingAbort.current = controller;
       _startPolling(controller.signal).catch(err =>
         console.error('[Telemetry] polling loop crashed:', err)
       );
-
       return true;
     } catch (err) {
       console.error('[Telemetry] connectOBD:', err);
@@ -287,7 +252,7 @@ export function TelemetryProvider({ children }) {
     }
   }, [data.isConnected, isConnecting, _startPolling]);
 
-  // ── Public: disconnect ──────────────────────────────────────────────────────
+  // ── Disconnect ────────────────────────────────────────────────────────────
 
   const disconnectOBD = useCallback(() => {
     pollingAbort.current?.abort();
@@ -296,9 +261,7 @@ export function TelemetryProvider({ children }) {
     setData(prev => ({ ...prev, isConnected: false }));
   }, []);
 
-  // ── Public: scan DTCs ───────────────────────────────────────────────────────
-
-  // ── Public: scan DTCs ───────────────────────────────────────────────────────
+  // ── Scan DTCs ─────────────────────────────────────────────────────────────
 
   const scanErrors = useCallback(async () => {
     setData(prev => ({ ...prev, isCheckingErrors: true }));
@@ -313,47 +276,61 @@ export function TelemetryProvider({ children }) {
       console.log(`[OBD] Сирі коди до фільтрації:`, result.codes.map(c => c.base || c));
 
       const finalErrors = result.codes
-        // ── 1. Drop anything not in our dictionary ────────────────────────
+        // ── 1. Only codes in our dictionary ────────────────────────────────
         .filter(codeItem => {
           const known = !!dtcDictionary[codeItem.base];
           if (!known) console.log(`[DTC] Dropping unknown: ${codeItem.base}`);
           return known;
         })
-        // ── 2. Deduplicate by base code — keep the highest-priority entry ─
-        // Priority: active (Mode 03) > pending (Mode 07) > historic (Mode 0A)
+        // ── 2. Deduplicate — keep highest-priority source per base code ────
         .reduce((acc, codeItem) => {
           const existing = acc.find(e => e.base === codeItem.base);
           if (!existing) {
             acc.push(codeItem);
           } else {
-            // Replace if new one has higher priority source
-            const priority = { 'Mode 03': 0, 'Mode 07': 1, 'Mode 0A': 2 };
-            const newP  = priority[codeItem.variant] ?? 3;
-            const exstP = priority[existing.variant]  ?? 3;
+            // Priority: lower number = higher priority
+            // Names must match what index.js sets in method.name
+            const PRIORITY = {
+              'Mode 03':    0,
+              'Mode UDS 09': 1,
+              'Mode UDS 08': 1,
+              'Mode UDS 01': 1,
+              'Mode 07':    2,
+              'Mode 0A':    3,
+              'KWP 00':     4,
+              'KWP FF':     4,
+            };
+            const newP  = PRIORITY[codeItem.variant] ?? 99;
+            const exstP = PRIORITY[existing.variant]  ?? 99;
             if (newP < exstP) {
               const idx = acc.indexOf(existing);
-              acc[idx] = codeItem;
+              acc[idx]  = codeItem;
             }
           }
           return acc;
         }, [])
-        // ── 3. Map to final shape with correct statusCategory ─────────────
+        // ── 3. Map to final shape ─────────────────────────────────────────
         .map(codeItem => {
           const baseCode = codeItem.base;
+          const v        = codeItem.variant ?? '';
 
-          // Protocol-level status overrides the UDS status byte:
-          // Mode 03 = confirmed/active codes stored in ECU memory
-          // Mode 07 = pending (failed this drive cycle, not yet confirmed)
-          // Mode 0A = permanent (cannot be cleared by Mode 04)
+          /**
+           * Protocol-level status takes precedence over UDS status byte:
+           *   Mode 03  → confirmed active in ECU memory       → 'active'
+           *   Mode UDS → use status byte bitmask (ISO 14229-1)
+           *   Mode 07  → pending (failed this drive cycle)    → 'pending'
+           *   Mode 0A  → permanent (survives Mode 04 clear)   → 'historic'
+           *   KWP      → treat same as Mode 03                → 'active'
+           */
           let statusCategory;
-          if (codeItem.variant?.includes('Mode 07')) {
+          if (v.includes('Mode 07')) {
             statusCategory = 'pending';
-          } else if (codeItem.variant?.includes('Mode 0A')) {
+          } else if (v.includes('Mode 0A')) {
             statusCategory = 'historic';
-          } else if (codeItem.variant?.includes('Mode 03')) {
+          } else if (v.includes('Mode 03') || v.includes('KWP')) {
             statusCategory = 'active';
           } else {
-            // UDS or KWP — use the status byte if available
+            // UDS — use statusByte bitmask
             statusCategory = _dtcStatusCategory(codeItem.statusByte ?? null);
           }
 
@@ -368,7 +345,7 @@ export function TelemetryProvider({ children }) {
           };
         });
 
-      // Log breakdown for debugging
+      // Debug
       const counts = finalErrors.reduce((acc, e) => {
         acc[e.statusCategory] = (acc[e.statusCategory] || 0) + 1;
         return acc;
@@ -394,10 +371,9 @@ export function TelemetryProvider({ children }) {
     }
   }, []);
 
-  // ── Public: clear DTCs (with state-based confirmation) ─────────────────────
+  // ── Clear DTCs ────────────────────────────────────────────────────────────
 
   const clearErrors = useCallback(() => {
-    // Returns a Promise that resolves after user confirms or cancels
     return new Promise((resolve) => {
       setConfirmState({
         message: 'Ви впевнені, що хочете стерти помилки? Це вимкне Check Engine.',
@@ -406,34 +382,26 @@ export function TelemetryProvider({ children }) {
           setData(prev => ({ ...prev, isCheckingErrors: true }));
           isPaused.current = true;
           await new Promise(r => setTimeout(r, 800));
-
           try {
             await obd.query(mode4.CLEAR_DTC);
             setData(prev => ({ ...prev, errors: [], hasScannedErrors: false }));
-            
-            // 💾 НОВЕ: Записуємо в історію, що помилки були стерті (порожній масив = чисто)
             saveDiagnosticReport('scanned_errors', []).catch(console.error);
-
             resolve(true);
           } catch (err) {
             console.error('[Telemetry] clearErrors:', err);
             resolve(false);
           } finally {
             setData(prev => ({ ...prev, isCheckingErrors: false }));
-            // Give the ECU time to reset before resuming
             await new Promise(r => setTimeout(r, 2000));
             isPaused.current = false;
           }
         },
-        onCancel: () => {
-          setConfirmState(null);
-          resolve(false);
-        },
+        onCancel: () => { setConfirmState(null); resolve(false); },
       });
     });
   }, []);
 
-  // ── Public: misc setters ────────────────────────────────────────────────────
+  // ── Misc setters ──────────────────────────────────────────────────────────
 
   const updateActiveSensors = useCallback((sensors) => {
     activeSensors.current = sensors;
@@ -447,7 +415,13 @@ export function TelemetryProvider({ children }) {
     obdScanner.setMode(mode);
   }, []);
 
-  // ── Lifecycle ───────────────────────────────────────────────────────────────
+  // Toggle archive error dropdown visibility (persisted in data state
+  // so it resets on re-scan — intentional)
+  const toggleArchiveErrors = useCallback(() => {
+    setData(prev => ({ ...prev, showArchiveErrors: !prev.showArchiveErrors }));
+  }, []);
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   useEffect(() => {
     fetchUserProfile();
@@ -457,10 +431,9 @@ export function TelemetryProvider({ children }) {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Context value ───────────────────────────────────────────────────────────
+  // ── Context value ─────────────────────────────────────────────────────────
 
   const value = useMemo(() => ({
-    // Spread all data fields to the surface
     ...data,
     isLoading,
     isConnecting,
@@ -470,14 +443,16 @@ export function TelemetryProvider({ children }) {
     disconnectOBD,
     scanErrors,
     clearErrors,
-    refreshProfile:       fetchUserProfile,
+    toggleArchiveErrors,
+    refreshProfile:     fetchUserProfile,
     updateActiveSensors,
     setPaused,
     setTransportMode,
   }), [
     data, isLoading, isConnecting, confirmState,
     connectOBD, disconnectOBD, scanErrors, clearErrors,
-    fetchUserProfile, updateActiveSensors, setPaused, setTransportMode,
+    toggleArchiveErrors, fetchUserProfile, updateActiveSensors,
+    setPaused, setTransportMode,
   ]);
 
   return (
@@ -489,10 +464,6 @@ export function TelemetryProvider({ children }) {
 
 // ── Consumer hook ─────────────────────────────────────────────────────────────
 
-/**
- * Use this in every page/component instead of the old useTelemetry() hook.
- * API is identical — drop-in replacement.
- */
 export function useTelemetry() {
   const ctx = useContext(TelemetryContext);
   if (!ctx) throw new Error('useTelemetry must be used inside <TelemetryProvider>');
@@ -504,18 +475,24 @@ export function useTelemetry() {
 function _classifyDtcSeverity(code) {
   if (!code) return 'Невідомо';
   const prefix = code.substring(0, 3);
-  // P03xx = misfire — high severity
   if (prefix === 'P03') return 'Високий';
-  // P01xx/P02xx = fuel/air — medium
   if (prefix === 'P01' || prefix === 'P02') return 'Середній';
   return 'Низький';
 }
 
+/**
+ * ISO 14229-1 §D.3 DTC Status Byte bitmask:
+ *  Bit 0 (0x01) testFailed           — currently failing  → active
+ *  Bit 3 (0x08) confirmedDTC         — confirmed in memory → active
+ *  Bit 2 (0x04) pendingDTC           — failed this cycle  → pending
+ *  All others without 0/3/2          → historic
+ */
 function _dtcStatusCategory(statusByte) {
-  if (statusByte === null || statusByte === undefined) return 'active'; // non-UDS source
-  if (statusByte & 0x01) return 'active';   // bit 0 — test failed
-  if (statusByte & 0x04) return 'pending';  // bit 2 — pending DTC
-  return 'historic';                         // confirmed but not currently failing
+  if (statusByte === null || statusByte === undefined) return 'active';
+  if (statusByte & 0x01) return 'active';   // bit 0: test currently failing
+  if (statusByte & 0x08) return 'active';   // bit 3: confirmed DTC
+  if (statusByte & 0x04) return 'pending';  // bit 2: pending DTC
+  return 'historic';
 }
 
 function _estimateDtcCost(code) {
