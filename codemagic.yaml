@@ -24,10 +24,6 @@ workflows:
           source: true
         
     scripts:
-      - name: Set build number
-        script: |
-          cd ios/App
-          agvtool new-version -all $CM_BUILD_NUMBER
         
       - name: Install Dependencies
         script: npm install
