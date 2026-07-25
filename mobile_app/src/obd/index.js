@@ -150,59 +150,134 @@ class OBDManager {
   // ── Smart fuel rate ───────────────────────────────────────────────────────
 
   async getSmartFuelRate() {
-    let cmdFuelRate = this.commands['FUEL_RATE'];
-    if (!cmdFuelRate) {
-      cmdFuelRate = {
-        command: '015E', bytes: 2,
-        decoder: (hex) => (parseInt(hex.substring(0,2),16)*256 + parseInt(hex.substring(2,4),16))*0.05,
-        unit: 'л/год', name: 'FUEL_RATE',
-      };
-    }
-    const direct = await this.query(cmdFuelRate);
-    if (direct?.value != null && direct.value !== 'NO DATA' && direct.value !== 'ERROR') return direct;
+    const _ok = (res) => res?.value != null && res.value !== '--' &&
+                          res.value !== 'NO DATA' && res.value !== 'ERROR' &&
+                          !isNaN(parseFloat(res.value));
 
-    let cmdMaf = this.commands['MAF'];
-    if (!cmdMaf) {
-      cmdMaf = {
-        command: '0110', bytes: 2,
-        decoder: (hex) => (parseInt(hex.substring(0,2),16)*256 + parseInt(hex.substring(2,4),16))/100,
-        unit: 'г/с', name: 'MAF',
-      };
+    // ── Step 1: Standard OBD PID 015E (works on most ECUs) ──────────────────
+    const cmd5E = this.commands['FUEL_RATE'] || {
+      command: '015E', bytes: 2,
+      decoder: (hex) => ((parseInt(hex.substring(0,2),16)*256 + parseInt(hex.substring(2,4),16)) * 0.05).toFixed(2),
+      unit: 'л/год', name: 'FUEL_RATE', desc: 'Витрата палива',
+    };
+    const r5E = await this.query(cmd5E);
+    if (_ok(r5E)) return r5E;
+
+    // ── Step 2: Mercedes/BMW often use PID 015E on secondary address ─────────
+    // Try alternate header — some Mercs respond only on 7E2 or 7E3
+    try {
+      await this._scanner.sendCommand('ATSH7E2');
+      const r5E2 = await this.query(cmd5E);
+      await this._scanner.sendCommand('ATSH7E0'); // restore default header
+      if (_ok(r5E2)) return r5E2;
+    } catch (_) {
+      try { await this._scanner.sendCommand('ATSH7E0'); } catch (_) {}
     }
-    const mafData = await this.query(cmdMaf);
-    if (mafData?.value != null && mafData.value !== 'NO DATA' && mafData.value !== 'ERROR') {
-      const mafValue = parseFloat(mafData.value);
-      let cmdFuelType = this.commands['FUEL_TYPE'];
-      if (!cmdFuelType) {
-        cmdFuelType = {
-          command: '0151', bytes: 1,
-          decoder: (hex) => parseInt(hex.substring(0,2),16),
-          unit: '', name: 'FUEL_TYPE',
-        };
+
+    // ── Step 3: UDS 22 service — Mercedes specific PIDs ─────────────────────
+    // Mercedes W212/W205/W213 commonly use these UDS ReadDataByIdentifier PIDs.
+    // 22F40F = fuel consumption (l/h), 22F415 = instant consumption variant,
+    // 222110 / 2221FD = alternate addresses seen on some ECU variants.
+    for (const udsCmd of [
+      { command: '22F40F', scale: 0.01,  desc: 'UDS Fuel F40F' },
+      { command: '22F415', scale: 0.01,  desc: 'UDS Fuel F415' },
+      { command: '222110', scale: 0.01,  desc: 'UDS Fuel 2110' },
+      { command: '2221FD', scale: 0.01,  desc: 'UDS Fuel 21FD' },
+    ]) {
+      try {
+        const raw = await this._scanner.sendCommand(udsCmd.command);
+        if (raw && !raw.includes('NO DATA') && !raw.includes('ERROR') && !raw.includes('?')) {
+          const clean = raw.replace(/[\s\r\n:0-9A-F]{1}:/g, '').replace(/[\s\r\n]/g, '').toUpperCase();
+          // UDS 22 reply prefix is 62 + the 2-byte DID, e.g. 22F40F → 62F40F
+          const did        = udsCmd.command.substring(2).toUpperCase();
+          const replyPfx   = '62' + did;
+          const prefixIdx  = clean.indexOf(replyPfx);
+          if (prefixIdx !== -1) {
+            // Data starts after the 6-char prefix (62 + 2-byte DID)
+            const hexData = clean.substring(prefixIdx + 6, prefixIdx + 10);
+            if (hexData.length === 4) {
+              const raw_val = parseInt(hexData, 16);
+              if (!isNaN(raw_val) && raw_val > 0 && raw_val < 0xFFFE) {
+                const lph = (raw_val * (udsCmd.scale || 0.01)).toFixed(2);
+                if (parseFloat(lph) > 0 && parseFloat(lph) < 100) {
+                  saveRawLog('FUEL_UDS', udsCmd.command, `${lph} л/год`);
+                  return { value: lph, unit: 'л/год', raw: hexData, name: 'FUEL_RATE', desc: 'Витрата палива' };
+                }
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // ── Step 4: MAF-based calculation (universal fallback) ───────────────────
+    const cmdMaf = this.commands['MAF'] || {
+      command: '0110', bytes: 2,
+      decoder: (hex) => ((parseInt(hex.substring(0,2),16)*256 + parseInt(hex.substring(2,4),16)) / 100).toFixed(2),
+      unit: 'г/с', name: 'MAF', desc: 'MAF',
+    };
+    const rMaf = await this.query(cmdMaf);
+    if (_ok(rMaf)) {
+      const mafGs = parseFloat(rMaf.value);
+
+      // Try to get fuel type for accurate AFR
+      const cmdFuelType = this.commands['FUEL_TYPE'] || {
+        command: '0151', bytes: 1,
+        decoder: (hex) => parseInt(hex.substring(0,2), 16),
+        unit: '', name: 'FUEL_TYPE', desc: 'Fuel Type',
+      };
+      const rFuelType = await this.query(cmdFuelType);
+      const fuelId = (_ok(rFuelType) && !isNaN(rFuelType.value)) ? parseInt(rFuelType.value, 10) : 1;
+
+      const FUEL_PROPS = {
+        1:  { afr: 14.7, density: 820 },  // Petrol
+        4:  { afr: 14.5, density: 850 },  // Diesel
+        8:  { afr: 15.5, density: 540 },  // LPG
+        9:  { afr: 17.2, density: 128 },  // CNG
+        23: { afr: 9.0,  density: 789 },  // Ethanol
+      };
+      const fp  = FUEL_PROPS[fuelId] || FUEL_PROPS[1];
+      const lph = ((mafGs * 3600) / (fp.afr * fp.density)).toFixed(1);
+      return { value: lph, unit: 'л/год', raw: 'MAF_CALC', name: 'FUEL_RATE', desc: 'Витрата палива' };
+    }
+
+    // ── Step 5: Throttle + RPM + displacement heuristic (last resort) ────────
+    // Very rough but better than '--' for engines that support nothing else
+    try {
+      const rRpm = await this.query(this.commands['RPM']);
+      const rTps = await this.query(this.commands['THROTTLE_POS']);
+      const rLoad = await this.query(this.commands['ENGINE_LOAD']);
+      if (_ok(rRpm) && _ok(rTps)) {
+        const rpm   = parseFloat(rRpm.value);
+        const tps   = parseFloat(rTps.value) / 100;
+        const load  = _ok(rLoad) ? parseFloat(rLoad.value) / 100 : tps;
+        // Assume 2.0L petrol if unknown — rough L/h = displacement * RPM * load * BSFC
+        const DISPLACEMENT_L = 2.0;
+        const BSFC = 0.00028; // brake-specific fuel consumption constant (rough)
+        const lph  = (DISPLACEMENT_L * rpm * load * BSFC).toFixed(1);
+        if (parseFloat(lph) > 0 && parseFloat(lph) < 80) {
+          return { value: lph, unit: 'л/год', raw: 'HEURISTIC', name: 'FUEL_RATE', desc: 'Витрата палива (розрах.)' };
+        }
       }
-      const fuelTypeData = await this.query(cmdFuelType);
-      let fuelId = 1;
-      if (fuelTypeData?.value != null && !isNaN(fuelTypeData.value)) fuelId = parseInt(fuelTypeData.value, 10);
-      const FUEL_CONSTANTS = {
-        1:  { afr: 14.7, density: 820 },
-        4:  { afr: 14.5, density: 850 },
-        8:  { afr: 15.5, density: 540 },
-        9:  { afr: 17.2, density: 128 },
-        23: { afr: 9.0,  density: 789 },
-        DEFAULT: { afr: 14.7, density: 820 },
-      };
-      const fp  = FUEL_CONSTANTS[fuelId] || FUEL_CONSTANTS.DEFAULT;
-      const lph = (mafValue * 3600) / (fp.afr * fp.density);
-      return { value: lph.toFixed(1), unit: 'л/год', raw: 'CALC', name: 'FUEL_RATE', desc: 'Витрата палива' };
-    }
+    } catch (_) {}
+
     return { value: '--', unit: 'л/год', raw: '', name: 'FUEL_RATE', desc: 'Витрата палива' };
   }
 
   // ── Smart DTC scanner ─────────────────────────────────────────────────────
 
   async smartReadDTC(dtcDictionary = {}) {
-    const allCodes    = new Map();
+    const allCodes     = new Map();
     const usedVariants = [];
+
+    // ── Pre-scan setup: increase ELM timeout and enable multi-frame ───────────
+    // Mercedes (and many modern cars) need longer response time for DTC queries
+    try {
+      await this._scanner.sendCommand('ATAT2');   // adaptive timing mode 2 (max wait)
+      await this._scanner.sendCommand('ATST64');  // timeout = 100 * 4ms = 400ms
+      await this._scanner.sendCommand('ATAL');    // allow long messages
+      await this._scanner.sendCommand('ATCAF0');  // disable CAN auto-formatting so we get raw frames
+    } catch (_) {}
 
     const methods = [
       // UDS — reliable subset only (1902FF and 19020C removed — cause garbage)
@@ -262,6 +337,13 @@ class OBDManager {
       }
     }
 
+    // ── Post-scan: restore normal ELM timing for live polling ─────────────────
+    try {
+      await this._scanner.sendCommand('ATAT1');   // adaptive timing mode 1 (normal)
+      await this._scanner.sendCommand('ATST26');  // default timeout
+      await this._scanner.sendCommand('ATCAF1');  // re-enable CAN auto-formatting
+    } catch (_) {}
+
     if (allCodes.size === 0) {
       return { codes: [], variant: 'Комплексне сканування (Помилок не виявлено)' };
     }
@@ -292,8 +374,29 @@ class OBDManager {
 
   async _executeRawDTC(cmd, decoderFunc) {
     try {
-      const response = await this._scanner.sendCommand(cmd);
+      let response = await this._scanner.sendCommand(cmd);
       saveRawLog('DTC_RAW_RES', cmd, response || 'NO_RESPONSE');
+
+      if (!response) return null;
+
+      // ── NRC 0x78: responsePending ─────────────────────────────────────────
+      // Mercedes ECUs often respond 7F <svc> 78 meaning "I'm still computing,
+      // send the same request again in a moment". We retry up to 4 times.
+      // From logs: 190208 → "...7F197859027F" contains 7F1978.
+      const svcByte = cmd.substring(0, 2).toUpperCase();
+      let retryCount = 0;
+      while (retryCount < 4) {
+        const r78 = response.replace(/[\s\r\n]/g, '').toUpperCase();
+        if (r78.includes(`7F${svcByte}78`)) {
+          retryCount++;
+          console.log(`[DTC] NRC 0x78 responsePending (${cmd}), retry ${retryCount}/4 after 600ms`);
+          await new Promise(r => setTimeout(r, 600));
+          response = await this._scanner.sendCommand(cmd);
+          saveRawLog('DTC_RETRY', cmd, response || 'NO_RESPONSE');
+        } else {
+          break;
+        }
+      }
 
       if (!response) return null;
 
@@ -311,9 +414,25 @@ class OBDManager {
       let fullHexPayload = '';
       for (let line of lines) {
         if (!line) continue;
-        line = line.replace(/^[0-9A-F]:/, ''); // strip CAN PCI frame byte
+        // Strip ISO-TP CAN frame sequence numbers (e.g. "1:", "2:", "A:")
+        line = line.replace(/^[0-9A-F]{1,2}:/, '');
+        // Strip CAN PCI single-frame length nibble at start (e.g. "0140:" already stripped above)
         fullHexPayload += line;
       }
+
+      // ── Strip any 7Fxx negative responses from multi-ECU payload ─────────
+      // e.g. "5902FF5902FF7F197859027F" — the "7F1978" is NRC appended by one
+      // ECU, we strip it so the decoder only sees valid 5902xx blocks
+      fullHexPayload = fullHexPayload.replace(/7F[0-9A-F]{2}[0-9A-F]{2}/g, (match) => {
+        // Only strip if it looks like a genuine NRC (3 bytes: 7F svc nrc)
+        // Keep it if it's part of a valid data value
+        const nrc = match.substring(4, 6);
+        const VALID_NRCS = new Set(['10','11','12','13','14','21','22','24','25','26','27',
+                                     '28','29','2A','2B','2C','2D','2E','31','33','35','37',
+                                     '38','39','3A','3B','3C','3D','3E','3F','70','71','72',
+                                     '73','74','78','7E','7F']);
+        return VALID_NRCS.has(nrc) ? '' : match;
+      });
 
       // ── Mode 03 / 07 / 0A: parse each ECU independently ─────────────────
       if (cmd === '03' || cmd === '07' || cmd === '0A') {

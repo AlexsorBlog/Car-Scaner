@@ -911,7 +911,7 @@ export default function DashboardPage() {
 
   const runDetailedAnalysis = async () => {
     if (!telemetry.isConnected) return;
-    if (!window.confirm("Аналіз може зайняти до 30 секунд. Продовжити?")) return;
+    if (!window.confirm("Аналіз може зайняти до 1–2 хвилин залежно від авто. Не вимикайте запалювання. Продовжити?")) return;
     
     setIsAnalyzing(true); 
     setAnalysisResults([]); 
@@ -1003,35 +1003,50 @@ export default function DashboardPage() {
       );
     }
 
-    let max = 100;
-    let min = 0;
-    let MathRange = 100;
+    // ── Y-axis: smart "nice" tick calculation ────────────────────────────────
+    let max = 100, min = 0, MathRange = 100;
+    let yTicks = [0, 25, 50, 75, 100]; // defaults
 
     if (visibleData.length > 0) {
-        const values = visibleData.map(d => d.v);
-        const rawMax = Math.max(...values);
-        const rawMin = Math.min(...values);
-        const valueRange = rawMax - rawMin === 0 ? 10 : rawMax - rawMin;
-        max = rawMax + (valueRange * 0.1); 
-        min = rawMin - (valueRange * 0.1); 
-        MathRange = max - min; 
+      const values   = visibleData.map(d => d.v);
+      const rawMax   = Math.max(...values);
+      const rawMin   = Math.min(...values);
+      const rawRange = rawMax - rawMin === 0 ? 10 : rawMax - rawMin;
+
+      // Round to a "nice" step so axis labels are clean numbers
+      const roughStep = rawRange / 4;
+      const mag   = Math.pow(10, Math.floor(Math.log10(roughStep)));
+      const step  = Math.ceil(roughStep / mag) * mag;
+
+      min       = Math.floor(rawMin / step) * step;
+      max       = min + step * 5;
+      MathRange = max - min;
+      yTicks    = [0, 1, 2, 3, 4, 5].map(i => min + i * step);
     }
 
-    const ySteps = [0, 0.25, 0.5, 0.75, 1];
-    const GAP_THRESHOLD = 15 * 60 * 1000; 
+    // ── Data decimation: cap visible points to ~300 so zoomed-out view
+    //    doesn't render thousands of overlapping polyline segments ─────────────
+    const MAX_RENDER_PTS = 300;
+    let renderData = visibleData;
+    if (visibleData.length > MAX_RENDER_PTS) {
+      const step = Math.ceil(visibleData.length / MAX_RENDER_PTS);
+      renderData = visibleData.filter((_, i) => i % step === 0 || i === visibleData.length - 1);
+    }
+
+    const GAP_THRESHOLD = 15 * 60 * 1000;
     const segments = [];
-    
-    if (visibleData.length > 0) {
-        let currentSegment = [visibleData[0]];
-        for(let i = 1; i < visibleData.length; i++) {
-           if(visibleData[i].t - visibleData[i-1].t > GAP_THRESHOLD) {
-               segments.push(currentSegment);
-               currentSegment = [visibleData[i]];
-           } else {
-               currentSegment.push(visibleData[i]);
-           }
+
+    if (renderData.length > 0) {
+      let currentSegment = [renderData[0]];
+      for (let i = 1; i < renderData.length; i++) {
+        if (renderData[i].t - renderData[i-1].t > GAP_THRESHOLD) {
+          segments.push(currentSegment);
+          currentSegment = [renderData[i]];
+        } else {
+          currentSegment.push(renderData[i]);
         }
-        segments.push(currentSegment);
+      }
+      segments.push(currentSegment);
     }
     
     const handleTouchStart = (e) => {
@@ -1127,33 +1142,78 @@ export default function DashboardPage() {
         </div>
         
         <div className="flex-1 relative mt-2 border-b border-l border-gray-800/80 cursor-ew-resize overflow-hidden" style={{ touchAction: 'none' }} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
-          {ySteps.map((pct, i) => {
-             const val = min + (MathRange * pct);
-             return (
-               <div key={i} className="absolute left-[-35px] text-[9px] text-gray-500" style={{ bottom: `${pct * 100}%`, transform: 'translateY(50%)' }}>
-                 {Math.round(val)}
-               </div>
-             )
+          {/* Y-axis labels — one per smart tick */}
+          {yTicks.map((val, i) => {
+            const pct = MathRange > 0 ? (val - min) / MathRange : 0;
+            if (pct < 0 || pct > 1) return null;
+            return (
+              <div key={i} className="absolute left-[-38px] text-[9px] text-gray-500 font-mono"
+                style={{ bottom: `${pct * 100}%`, transform: 'translateY(50%)' }}>
+                {val % 1 === 0 ? val : val.toFixed(1)}
+              </div>
+            );
           })}
 
           <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full overflow-visible" preserveAspectRatio="none">
-            {ySteps.map((pct, i) => (
-               <line key={`grid-${i}`} x1="0" y1={100 - (pct * 100)} x2="100" y2={100 - (pct * 100)} stroke="#1f2937" strokeWidth="0.5" strokeDasharray="2,2" />
-            ))}
+            <defs>
+              <linearGradient id="graph-fill-grad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%"   stopColor={selectedGraph.color} stopOpacity="0.2"/>
+                <stop offset="100%" stopColor={selectedGraph.color} stopOpacity="0.01"/>
+              </linearGradient>
+            </defs>
 
-            {segments.map((seg, idx) => {
-               if (seg.length <= 1) return null;
-               
-               const pts = seg.map((d) => {
-                 const x = ((d.t - viewStartTime) / WINDOW_MS) * 100;
-                 const y = 100 - (((d.v - min) / MathRange) * 100);
-                 return `${x},${y}`;
-               }).join(' ');
-
-               return (
-                 <polyline key={`line-${idx}`} fill="none" stroke={selectedGraph.color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" points={pts} className="drop-shadow-lg" />
-               );
+            {/* Grid lines at smart tick positions */}
+            {yTicks.map((val, i) => {
+              const pct = MathRange > 0 ? (val - min) / MathRange : 0;
+              if (pct < 0 || pct > 1) return null;
+              const y = 100 - pct * 100;
+              return (
+                <line key={`grid-${i}`} x1="0" y1={y} x2="100" y2={y}
+                  stroke={val === 0 ? '#374151' : '#1f2937'}
+                  strokeWidth={val === 0 ? '0.7' : '0.4'}
+                  strokeDasharray={val === 0 ? '' : '2,3'}/>
+              );
             })}
+
+            {/* Gradient fill under the first segment */}
+            {segments[0] && segments[0].length > 1 && (() => {
+              const fillPts = segments[0].map(d => {
+                const x = ((d.t - viewStartTime) / WINDOW_MS) * 100;
+                const y = 100 - (((d.v - min) / MathRange) * 100);
+                return `${x},${y}`;
+              }).join(' ');
+              const firstX = ((segments[0][0].t - viewStartTime) / WINDOW_MS) * 100;
+              const lastX  = ((segments[0][segments[0].length-1].t - viewStartTime) / WINDOW_MS) * 100;
+              return <polygon fill="url(#graph-fill-grad)" points={`${firstX},100 ${fillPts} ${lastX},100`}/>;
+            })()}
+
+            {/* Data lines */}
+            {segments.map((seg, idx) => {
+              if (seg.length <= 1) return null;
+              const pts = seg.map(d => {
+                const x = ((d.t - viewStartTime) / WINDOW_MS) * 100;
+                const y = 100 - (((d.v - min) / MathRange) * 100);
+                return `${x},${y}`;
+              }).join(' ');
+              return (
+                <polyline key={`line-${idx}`} fill="none" stroke={selectedGraph.color}
+                  strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" points={pts}/>
+              );
+            })}
+
+            {/* Live dot — last visible point */}
+            {renderData.length > 0 && (() => {
+              const last = renderData[renderData.length - 1];
+              const x = ((last.t - viewStartTime) / WINDOW_MS) * 100;
+              const y = 100 - (((last.v - min) / MathRange) * 100);
+              if (x < 0 || x > 100) return null;
+              return (
+                <>
+                  <circle cx={x} cy={y} r="2.5" fill={selectedGraph.color} opacity="0.3"/>
+                  <circle cx={x} cy={y} r="1.5" fill={selectedGraph.color}/>
+                </>
+              );
+            })()}
           </svg>
 
           {visibleData.length === 0 && (
@@ -1680,8 +1740,10 @@ export default function DashboardPage() {
                   {analysisResults.map((res, i) => (
                     <div key={i} className="flex justify-between items-center bg-[#111318] p-4 rounded-xl border border-gray-800 hover:border-gray-700 transition-colors">
                       <div className="pr-4">
-                        <div className="text-xs font-bold text-gray-200">{res.name}</div>
-                        <div className="text-[10px] text-gray-500 leading-tight mt-1">{res.desc}</div>
+                        {/* desc first — human-readable Ukrainian description */}
+                        <div className="text-xs font-bold text-gray-200 leading-tight">{res.desc || res.name}</div>
+                        {/* name second — OBD code, smaller, for reference/googling */}
+                        <div className="text-[9px] text-gray-600 font-mono mt-0.5">{res.name}</div>
                       </div>
                       <div className="text-right whitespace-nowrap">
                         <span className="text-lg font-black text-blue-400 tabular-nums">{res.value}</span>
