@@ -194,29 +194,130 @@ export const dtc_kwp = (hex) => {
 // ── String / misc decoders ────────────────────────────────────────────────────
 
 export const decodeEncodedString = (hex) => {
+  // Strip ISO-TP frame numbers (e.g. "1:002D" → strip "1:")
+  const clean = hex.replace(/[0-9A-Fa-f]{1,2}:[0-9A-Fa-f]/g, m => m.slice(2));
   let str = '';
-  for (let i = 0; i + 1 < hex.length; i += 2) {
-    const code = parseInt(hex.substr(i, 2), 16);
+  for (let i = 0; i + 1 < clean.length; i += 2) {
+    const code = parseInt(clean.substr(i, 2), 16);
     if (code === 0) continue;
-    str += String.fromCharCode(code);
+    if (code >= 32 && code < 127) str += String.fromCharCode(code);
   }
-  return str.replace(/[^ -~]/g, '').trim();
+  return str.trim() || hex;
+};
+
+// Fuel system status — decode the status byte to human-readable
+export const fuel_status = (hex) => {
+  const byte1 = parseInt(hex.substring(0, 2), 16);
+  const statuses = [];
+  if (byte1 & 0x01) statuses.push('ВКЛ (Open loop, fault)');
+  if (byte1 & 0x02) statuses.push('Закр. контур (норма)');
+  if (byte1 & 0x04) statuses.push('Відкр. контур (пуск)');
+  if (byte1 & 0x08) statuses.push('Закр. контур (O2 fault)');
+  if (byte1 & 0x10) statuses.push('Закр. контур (feedback)');
+  return statuses.join(', ') || `0x${hex.substring(0,2)}`;
+};
+
+// OBD compliance — map byte to standard name
+export const obd_compliance = (hex) => {
+  const v = parseInt(hex.substring(0, 2), 16);
+  const COMPLIANCE = {
+    1: 'OBD-II (CARB)', 2: 'OBD (EPA)', 3: 'OBD+OBD-II', 4: 'OBD-I',
+    5: 'No OBD', 6: 'EOBD', 7: 'EOBD+OBD-II', 8: 'EOBD+OBD',
+    9: 'EOBD+OBD+OBD-II', 10: 'JOBD', 11: 'JOBD+OBD-II', 12: 'JOBD+EOBD',
+    13: 'JOBD+EOBD+OBD-II', 17: 'EMD', 18: 'EMD+', 19: 'HD OBD-C',
+    20: 'HD OBD', 21: 'WWH OBD', 23: 'HD EOBD-I', 24: 'HD EOBD-I N',
+    25: 'HD EOBD-II', 26: 'HD EOBD-II N', 28: 'OBDBr-1', 29: 'OBDBr-2',
+    30: 'KOBD', 31: 'IOBD-I', 32: 'IOBD-II', 33: 'HD EOBD-IV',
+  };
+  return COMPLIANCE[v] || `Стандарт 0x${v.toString(16).toUpperCase()}`;
+};
+
+// O2 sensors present — decode bitmask
+export const o2_sensors = (hex) => {
+  const v = parseInt(hex.substring(0, 2), 16);
+  const present = [];
+  const labels  = ['B1S1','B1S2','B1S3','B1S4','B2S1','B2S2','B2S3','B2S4'];
+  labels.forEach((l, i) => { if (v & (1 << i)) present.push(l); });
+  return present.length ? present.join(', ') : 'Немає';
+};
+
+export const o2_sensors_alt = o2_sensors;
+
+// Evap pressure — FEEE means "not available", otherwise signed int16
+export const evap_pressure = (hex) => {
+  const raw = parseInt(hex.substring(0, 4), 16);
+  if (raw === 0xFEEE || raw === 0xFFFF) return 'Н/Д';
+  // Signed: range -8192 to +8191 Pa
+  const signed = raw > 32767 ? raw - 65536 : raw;
+  return `${signed} Па`;
+};
+
+export const abs_evap_pressure = (hex) => {
+  const v = parseInt(hex.substring(0, 4), 16);
+  if (v === 0xFEEE || v === 0xFFFF) return 'Н/Д';
+  return parseFloat((v / 200.0).toFixed(2));
+};
+
+// Drive cycle status — decode the 4-byte bitmask
+export const status = (hex) => {
+  if (!hex || hex.length < 2) return hex;
+  const b0 = parseInt(hex.substring(0,2), 16);
+  const milOn = !!(b0 & 0x80);
+  const dtcCnt = b0 & 0x7F;
+  return `MIL: ${milOn ? 'УВІМК' : 'ВИМК'} · ${dtcCnt} кодів`;
+};
+
+// CVN — strip ISO-TP frame numbers, format as clean hex groups
+export const cvn = (hex) => {
+  // Remove frame sequence numbers like "1:", "2:" etc
+  const clean = hex.replace(/[0-9A-Fa-f]{1,2}:/g, '');
+  // Group into 4-byte CVN values
+  const groups = [];
+  for (let i = 0; i + 7 < clean.length; i += 8) {
+    groups.push(clean.substring(i, i+8).toUpperCase());
+  }
+  return groups.length ? groups.join(' ') : clean.toUpperCase();
+};
+
+// ECU name — decode from hex to ASCII, strip frame numbers
+export const elm_voltage = (hex) => hex;
+
+// Single DTC — keep as raw for now (used in mode 1 DTC status)
+export const single_dtc = (hex) => {
+  if (!hex || hex === '0000') return 'Немає';
+  const LETTERS = ['P','C','B','U'];
+  const b = parseInt(hex.substring(0,2),16);
+  const letter = LETTERS[(b >> 6) & 0x03];
+  const d1 = (b >> 4) & 0x03;
+  const d2 = (b & 0x0F).toString(16).toUpperCase();
+  const d34 = hex.substring(2,4).toUpperCase();
+  return `${letter}${d1}${d2}${d34}`;
 };
 
 export const pid              = (hex) => hex;
-export const status           = (hex) => hex;
-export const single_dtc       = (hex) => hex;
-export const fuel_status      = (hex) => hex;
-export const air_status       = (hex) => hex;
-export const obd_compliance   = (hex) => hex;
-export const o2_sensors       = (hex) => hex;
-export const o2_sensors_alt   = (hex) => hex;
-export const aux_input_status = (hex) => hex;
-export const fuel_type        = (hex) => hex;
+export const air_status       = (hex) => {
+  const v = parseInt(hex.substring(0,2), 16);
+  if (v & 0x01) return 'Upstream';
+  if (v & 0x02) return 'Downstream';
+  if (v & 0x04) return 'Off / not used';
+  return `0x${v.toString(16).toUpperCase()}`;
+};
+export const aux_input_status = (hex) => parseInt(hex.substring(0,2),16) & 0x01 ? 'Увімк.' : 'Вимк.';
+export const fuel_type        = (hex) => {
+  const TYPES = {
+    0:'Не визначено',1:'Бензин',2:'Метанол',3:'Етанол',4:'Дизель',
+    5:'LPG',6:'CNG',7:'Пропан',8:'Електро',9:'Біфуель (бензин)',
+    10:'Біфуель (метанол)',11:'Біфуель (етанол)',12:'Біфуель (LPG)',
+    13:'Біфуель (CNG)',14:'Біфуель (пропан)',15:'HFCEV',16:'Гібрид (електро)',
+    17:'Гібрид (бензин)',18:'Гібрид (дизель)',
+  };
+  const v = parseInt(hex.substring(0,2),16);
+  return TYPES[v] || `Тип ${v}`;
+};
 export const monitor          = (hex) => hex;
-export const cvn              = (hex) => hex;
-export const elm_voltage      = (hex) => hex;
-
-export const abs_evap_pressure = (hex) => parseFloat((hexToInt(hex) / 200.0).toFixed(2));
-export const evap_pressure_alt = (hex) => hexToInt(hex) - 32767;
-export const evap_pressure     = (hex) => hex;
+export const evap_pressure_alt = (hex) => {
+  const raw = parseInt(hex.substring(0,4),16);
+  if (raw === 0xFEEE || raw === 0xFFFF) return 'Н/Д';
+  const signed = raw > 32767 ? raw - 65536 : raw;
+  return `${signed} Па`;
+};

@@ -426,8 +426,13 @@ export function TelemetryProvider({ children }) {
   useEffect(() => {
     fetchUserProfile();
     return () => {
+      // Only abort polling on unmount — do NOT call obd.disconnect() here.
+      // TelemetryProvider lives inside BrowserRouter and stays mounted for
+      // the entire app lifetime, so this cleanup only fires on full app
+      // unmount. However on some Capacitor/React Router versions a hot
+      // reload or strict-mode double-mount fires this, killing BLE.
+      // Explicit disconnects go through disconnectOBD() only.
       pollingAbort.current?.abort();
-      obd.disconnect();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

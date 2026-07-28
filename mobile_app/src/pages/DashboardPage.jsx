@@ -926,16 +926,25 @@ export default function DashboardPage() {
       const cmd = allCommands[i];
       setAnalysisProgress(Math.round(((i + 1) / totalCmds) * 100));
       if (
-        cmd.name.includes('PIDS_') ||     
-        cmd.name.includes('MIDS_') ||     
-        cmd.name.startsWith('MONITOR_')   
+        cmd.name.includes('PIDS_') ||
+        cmd.name.includes('MIDS_') ||
+        cmd.name.startsWith('MONITOR_') ||
+        cmd.name === 'GET_DTC' ||            // returns raw codes, not a metric
+        cmd.name === 'GET_CURRENT_DTC' ||   // same
+        cmd.name === 'CLEAR_DTC'            // destructive — never run in analysis
       ) {
-        continue; 
+        continue;
       }
       try {
         const res = await obd.query(cmd);
         if (res && res.value !== null && res.value !== 'NO DATA' && res.value !== 'ERROR') {
-          results.push({ name: cmd.name, desc: cmd.desc, value: res.value, unit: res.unit || '' });
+          const val = String(res.value).trim();
+          // Skip raw hex strings that weren't decoded (e.g. "0027C000", "FEEE")
+          // Keep if it contains non-hex characters or is short (number/percentage/temp)
+          const isRawHex = /^[0-9A-Fa-f]{4,}$/.test(val) && val.length >= 6;
+          if (!isRawHex && val !== '' && val !== 'Н/Д') {
+            results.push({ name: cmd.name, desc: cmd.desc, value: val, unit: res.unit || '' });
+          }
         }
       } catch (err) {}
       await new Promise(r => setTimeout(r, 100));
@@ -1128,7 +1137,8 @@ export default function DashboardPage() {
         <div className="flex justify-between items-end mb-4">
           <div>
             <div className="text-xl font-bold" style={{ color: selectedGraph.color }}>
-              {visibleData.length > 0 ? visibleData[visibleData.length-1]?.v : '--'} {selectedGraph.unit}
+              {visibleData.length > 0 ? visibleData[visibleData.length-1]?.v : '--'}
+              <span className="text-sm font-normal text-gray-400 ml-1">{selectedGraph.unit}</span>
             </div>
             <div className="text-[10px] text-gray-500">
               {panOffsetMs > 0 ? 'Архівне значення' : 'Поточне значення'}
@@ -1140,8 +1150,21 @@ export default function DashboardPage() {
              </button>
           )}
         </div>
-        
-        <div className="flex-1 relative mt-2 border-b border-l border-gray-800/80 cursor-ew-resize overflow-hidden" style={{ touchAction: 'none' }} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+
+        {/* Chart area with Y-axis unit label */}
+        <div className="flex gap-1 flex-1 relative mt-2">
+          {/* Y-axis unit rotated label */}
+          <div className="flex flex-col items-center justify-center flex-shrink-0" style={{ width: 18 }}>
+            <span
+              className="text-[9px] font-bold whitespace-nowrap"
+              style={{ color: selectedGraph.color, transform: 'rotate(-90deg)', transformOrigin: 'center', display: 'block', letterSpacing: '0.05em' }}
+            >
+              {selectedGraph.unit || selectedGraph.label}
+            </span>
+          </div>
+
+          {/* Chart */}
+          <div className="flex-1 relative border-b border-l border-gray-800/80 cursor-ew-resize overflow-hidden" style={{ touchAction: 'none' }} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
           {/* Y-axis labels — one per smart tick */}
           {yTicks.map((val, i) => {
             const pct = MathRange > 0 ? (val - min) / MathRange : 0;
@@ -1226,7 +1249,8 @@ export default function DashboardPage() {
                 )}
              </div>
           )}
-        </div>
+          </div>{/* end chart */}
+        </div>{/* end flex row: unit label + chart */}
         
         <div className="flex justify-between w-full pl-2 pr-1 text-[9px] text-gray-500 font-mono mt-2">
             <span>{formatTimeAxis(viewStartTime)}</span>
