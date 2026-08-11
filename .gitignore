@@ -9,3 +9,14 @@ mobile_app/AuthKey_63LKVG74X2.p8
 elm.log.1
 elm.log
 mobile_app/AuthKey_Y9T3S49974.p8
+/server/venv
+/server/app/routers/__pycache__
+/claude
+/server/.env
+/mobile_app/.env
+server/.env
+server/.env.example
+server/.env
+server/.env
+server/.env
+/server/app/__pycache__

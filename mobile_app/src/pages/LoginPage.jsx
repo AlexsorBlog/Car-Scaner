@@ -1,99 +1,196 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { api } from '../services/api.js';
+
+const BRANDS = ['BMW','Mercedes','Toyota','Honda','Audi','Volkswagen',
+                 'Ford','Hyundai','Kia','Nissan','Mazda','Subaru','Інша'];
 
 export default function LoginPage() {
-  const [phone, setPhone] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
   const navigate = useNavigate();
+  const [mode,   setMode]   = useState('login'); // 'login' | 'register' | 'profile'
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState('');
 
-  // У файлі LoginPage.jsx замініть вміст handleLogin на цей:
+  // Login form
+  const [phone,    setPhone]    = useState('');
+  const [password, setPassword] = useState('');
+
+  // Register extra fields
+  const [name,      setName]      = useState('');
+  const [carBrand,  setCarBrand]  = useState('');
+  const [carModel,  setCarModel]  = useState('');
+  const [carYear,   setCarYear]   = useState('');
+  const [vin,       setVin]       = useState('');
+
   const handleLogin = async (e) => {
     e.preventDefault();
-    setIsLoading(true);
-
-    // Імітація затримки мережі
-    setTimeout(() => {
-      // Просто зберігаємо фейковий токен, щоб PrivateRoute нас пропустив
-      localStorage.setItem('obd_token', 'fake-test-token');
-      localStorage.setItem('obd_user', JSON.stringify({ name: "Admin", role: "Developer" }));
-      
-      setIsLoading(false);
-      navigate('/dashboard');
-    }, 500);
+    setLoading(true); setError('');
+    try {
+      await api.login(phone, password);
+      navigate('/dashboard', { replace: true });
+    } catch (err) {
+      setError(err.message || 'Помилка входу');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // const handleLogin = async (e) => {
-  //   e.preventDefault();
-  //   setIsLoading(true);
-  //   setError('');
-
-  //   try {
-  //     // Робимо запит до нашого Node.js сервера
-  //     const response = await fetch('http://localhost:3000/api/auth/login', {
-  //       method: 'POST',
-  //       headers: { 'Content-Type': 'application/json' },
-  //       body: JSON.stringify({ phone })
-  //     });
-
-  //     const data = await response.json();
-
-  //     if (response.ok) {
-  //       // Зберігаємо токен у пам'ять телефону (LocalStorage)
-  //       localStorage.setItem('obd_token', data.token);
-  //       localStorage.setItem('obd_user', JSON.stringify(data.user));
-        
-  //       // Переходимо на Дашборд
-  //       navigate('/dashboard');
-  //     } else {
-  //       setError(data.error || 'Помилка авторизації');
-  //     }
-  //   } catch (err) {
-  //     setError('Не вдалося з\'єднатися з сервером');
-  //   } finally {
-  //     setIsLoading(false);
-  //   }
-  // };
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    if (mode === 'register') { setMode('profile'); return; }
+    // mode === 'profile' — submit
+    setLoading(true); setError('');
+    try {
+      await api.register({
+        phone, password, name,
+        car_brand: carBrand,
+        car_model: carModel,
+        car_year:  carYear ? parseInt(carYear) : null,
+        vin,
+      });
+      navigate('/dashboard', { replace: true });
+    } catch (err) {
+      setError(err.message || 'Помилка реєстрації');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div className=" bg-[#050505] flex flex-col items-center justify-center p-6 font-sans">
-      <div className="w-full max-w-sm bg-[#111318] rounded-3xl p-8 shadow-2xl border border-gray-800">
-        
-        <div className="flex justify-center mb-6">
-          <div className="w-16 h-16 rounded-full bg-blue-600 flex items-center justify-center shadow-[0_0_20px_rgba(37,99,235,0.4)]">
-             <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-          </div>
+    <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-6">
+      {/* Logo */}
+      <div className="mb-8 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center mx-auto mb-3">
+          <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+              d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/>
+          </svg>
         </div>
+        <h1 className="text-2xl font-black text-white">CarSense</h1>
+        <p className="text-[10px] text-gray-500 uppercase tracking-widest mt-0.5">OBD-II Diagnostics</p>
+      </div>
 
-        <h1 className="text-2xl font-black text-center mb-2 text-white tracking-wide">ETHER_LINK</h1>
-        <p className="text-gray-500 text-center mb-8 text-xs font-bold tracking-widest uppercase">Система телеметрії</p>
-        
-        <form onSubmit={handleLogin} className="flex flex-col gap-4">
-          <div>
-            <label className="text-[10px] text-gray-500 font-bold tracking-widest mb-1 block">НОМЕР ТЕЛЕФОНУ</label>
-            <input 
-              type="tel" 
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+380 XX XXX XX XX" 
-              required
-              className="w-full bg-gray-900/50 border border-gray-700 rounded-xl p-4 text-white focus:outline-none focus:border-blue-500 transition-colors placeholder-gray-600"
-            />
+      <div className="w-full max-w-sm">
+        {/* Tab switcher */}
+        {mode !== 'profile' && (
+          <div className="flex bg-[#111318] rounded-2xl p-1 border border-gray-800 mb-6">
+            <button onClick={() => { setMode('login'); setError(''); }}
+              className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all
+                ${mode === 'login' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-500'}`}>
+              Вхід
+            </button>
+            <button onClick={() => { setMode('register'); setError(''); }}
+              className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all
+                ${mode === 'register' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-500'}`}>
+              Реєстрація
+            </button>
           </div>
+        )}
 
-          {error && <p className="text-red-500 text-xs font-bold text-center">{error}</p>}
-          
-          <button 
-            type="submit"
-            disabled={isLoading}
-            className="w-full mt-4 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white font-bold py-4 rounded-xl transition-all shadow-[0_0_15px_rgba(37,99,235,0.3)] flex justify-center items-center"
-          >
-            {isLoading ? (
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-            ) : (
-              "УВІЙТИ"
-            )}
+        {error && (
+          <div className="bg-red-950/40 border border-red-900/30 text-red-400 text-xs p-3 rounded-xl mb-4">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={mode === 'login' ? handleLogin : handleRegister}
+          className="flex flex-col gap-4">
+
+          {/* ── Step 1: phone + password ── */}
+          {(mode === 'login' || mode === 'register') && (
+            <>
+              <div>
+                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1.5 block">
+                  Номер телефону
+                </label>
+                <input
+                  type="tel" required value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  placeholder="+380XXXXXXXXX"
+                  className="w-full bg-[#111318] border border-gray-800 text-white px-4 py-3 rounded-xl text-sm outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1.5 block">
+                  Пароль
+                </label>
+                <input
+                  type="password" required value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="Мінімум 6 символів"
+                  className="w-full bg-[#111318] border border-gray-800 text-white px-4 py-3 rounded-xl text-sm outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
+
+              {mode === 'register' && (
+                <div>
+                  <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1.5 block">
+                    Ваше ім'я
+                  </label>
+                  <input
+                    type="text" required value={name}
+                    onChange={e => setName(e.target.value)}
+                    placeholder="Ім'я"
+                    className="w-full bg-[#111318] border border-gray-800 text-white px-4 py-3 rounded-xl text-sm outline-none focus:border-blue-500 transition-colors"
+                  />
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── Step 2: car info (register only) ── */}
+          {mode === 'profile' && (
+            <>
+              <div className="text-center mb-2">
+                <h2 className="text-lg font-black text-white">Дані автомобіля</h2>
+                <p className="text-[10px] text-gray-500">Можна змінити пізніше в профілі</p>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1.5 block">Марка</label>
+                <select value={carBrand} onChange={e => setCarBrand(e.target.value)}
+                  className="w-full bg-[#111318] border border-gray-800 text-white px-4 py-3 rounded-xl text-sm outline-none focus:border-blue-500">
+                  <option value="">Оберіть марку</option>
+                  {BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1.5 block">Модель</label>
+                <input type="text" value={carModel} onChange={e => setCarModel(e.target.value)}
+                  placeholder="3 Series, Camry, Civic..."
+                  className="w-full bg-[#111318] border border-gray-800 text-white px-4 py-3 rounded-xl text-sm outline-none focus:border-blue-500"/>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1.5 block">Рік</label>
+                  <input type="number" value={carYear} onChange={e => setCarYear(e.target.value)}
+                    placeholder="2020" min="1990" max={new Date().getFullYear()}
+                    className="w-full bg-[#111318] border border-gray-800 text-white px-4 py-3 rounded-xl text-sm outline-none focus:border-blue-500"/>
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1.5 block">VIN (опціонально)</label>
+                  <input type="text" value={vin} onChange={e => setVin(e.target.value.toUpperCase())}
+                    placeholder="WVWZZZ..."
+                    className="w-full bg-[#111318] border border-gray-800 text-white px-4 py-3 rounded-xl text-sm outline-none focus:border-blue-500 font-mono"/>
+                </div>
+              </div>
+            </>
+          )}
+
+          <button type="submit" disabled={loading}
+            className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold py-4 rounded-xl text-sm transition-all shadow-[0_0_20px_rgba(37,99,235,0.3)] mt-2">
+            {loading ? 'Завантаження...' : mode === 'login' ? 'УВІЙТИ' : mode === 'register' ? 'ДАЛІ →' : 'ЗАРЕЄСТРУВАТИСЬ'}
           </button>
+
+          {mode === 'profile' && (
+            <button type="button" onClick={() => setMode('register')}
+              className="w-full text-gray-500 text-xs underline py-1">
+              ← Назад
+            </button>
+          )}
         </form>
       </div>
     </div>

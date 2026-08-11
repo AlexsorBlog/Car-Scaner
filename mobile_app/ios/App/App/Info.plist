@@ -8,6 +8,10 @@
     <string>Додаток використовує Bluetooth для підключення до OBD-II сканера</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>Додаток використовує вашу локацію щоб показати найближчі СТО</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Додаток використовує камеру, щоб сфотографувати пошкодження авто для AI-аналізу</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Додаток використовує фотогалерею, щоб завантажити фото авто для AI-аналізу</string>
     <key>CAPACITOR_DEBUG</key>
     <string>$(CAPACITOR_DEBUG)</string>
     <key>CFBundleDevelopmentRegion</key>

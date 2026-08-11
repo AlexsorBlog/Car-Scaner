@@ -249,7 +249,15 @@ export default function DiagnosticsPage() {
                 <p className="text-[10px] text-gray-400 mb-4 leading-relaxed">
                   Наш ШІ може проаналізувати дані вашого авто за останні 7 днів та цю помилку, щоб дати рекомендації та знайти найближче СТО.
                 </p>
-                <button className="w-full bg-blue-600/20 border border-blue-500/30 text-blue-400 hover:bg-blue-600/30 font-bold py-3 rounded-xl flex justify-center items-center gap-2 text-xs transition-all shadow-md">
+                <button
+                  onClick={() => navigate('/chat', {
+                    state: {
+                      chat_type: 'issue',
+                      seedMessage: `Помилка ${selectedError.code}: ${selectedError.title}. Що це означає і як усунути?`,
+                    },
+                  })}
+                  className="w-full bg-blue-600/20 border border-blue-500/30 text-blue-400 hover:bg-blue-600/30 font-bold py-3 rounded-xl flex justify-center items-center gap-2 text-xs transition-all shadow-md"
+                >
                   АНАЛІЗУВАТИ З AI
                 </button>
               </div>

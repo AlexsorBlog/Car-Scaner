@@ -16,7 +16,7 @@ import {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { obd, SERVER_CONFIG }              from '../obd/index.js';
+import { obd }                              from '../obd/index.js';
 import { commands, mode3, mode4 }          from '../obd/commands.js';
 import { obdScanner, TRANSPORT }           from '../services/bleService.js';
 import {
@@ -25,6 +25,7 @@ import {
   summarizeOldData,
   saveDiagnosticReport,
 } from '../services/db.js';
+import { api } from '../services/api.js';
 import dtcDictionary from '../obd/codes.json';
 
 // ── Polling tiers ─────────────────────────────────────────────────────────────
@@ -85,26 +86,28 @@ export function TelemetryProvider({ children }) {
     const token = requireAuth();
     if (!token) { setIsLoading(false); return; }
 
+    let user;
+    let profileError = null;
+
     try {
-      let user;
+      const profile = await api.getProfile();
+      user = {
+        name:    profile.name  || '',
+        email:   profile.email || '',
+        vehicle: [profile.car_brand, profile.car_model].filter(Boolean).join(' '),
+        vin:     profile.vin   || '',
+        make:    profile.car_brand || '',
+        model:   profile.car_model || '',
+      };
+    } catch (err) {
+      // Backend not reachable yet (or request failed) — degrade gracefully
+      // instead of blocking the whole app; surface it via profileError.
+      console.warn('[Telemetry] fetchUserProfile: could not reach server —', err.message);
+      profileError = err.message;
+      user = { name: 'Гість (офлайн)', email: '', vehicle: '', vin: '', make: '', model: '' };
+    }
 
-      if (SERVER_CONFIG.enabled) {
-        // ── Server path (when server is live) ──────────────────────────────
-        const res = await fetch(`${SERVER_CONFIG.url.replace('wss://', 'https://').replace('ws://', 'http://')}/api/profile`, {
-          headers: { Authorization: `Bearer ${SERVER_CONFIG.authToken()}` },
-        });
-        if (!res.ok) throw new Error(`Server ${res.status}`);
-        user = await res.json();
-      } else {
-        // ── Offline / bypass path ───────────────────────────────────────────
-        user = {
-          name:    'Vladislav (Admin)',
-          email:   'vladislav@carscanner.local',
-          vehicle: 'BMW 5 Series',
-          vin:     'WBA0000000000000',
-        };
-      }
-
+    try {
       const recentRows = await getRecentTelemetry(1500);
       const histSpeed = [], histRpm = [], histTemp = [], histFuel = [];
       let initialMetrics = {};
@@ -122,19 +125,15 @@ export function TelemetryProvider({ children }) {
         ...prev,
         speed: latestSpeed, rpm: latestRpm, temp: latestTemp, fuel: latestFuel,
         metrics: initialMetrics,
-        user: {
-          ...user,
-          make:  user.vehicle?.split(' ')[0]               ?? '',
-          model: user.vehicle?.split(' ').slice(1).join(' ') ?? '',
-        },
+        user,
         history: { speed: histSpeed, rpm: histRpm, temp: histTemp, fuel: histFuel },
-        profileError: null,
+        profileError,
       }));
 
       summarizeOldData().catch(console.error);
 
     } catch (err) {
-      console.error('[Telemetry] fetchUserProfile:', err);
+      console.error('[Telemetry] fetchUserProfile (local history load):', err);
       setData(prev => ({ ...prev, profileError: err.message }));
     } finally {
       setIsLoading(false);
@@ -295,6 +294,7 @@ export function TelemetryProvider({ children }) {
               'Mode UDS 09': 1,
               'Mode UDS 08': 1,
               'Mode UDS 01': 1,
+              'Mode UDS 04': 1,
               'Mode 07':    2,
               'Mode 0A':    3,
               'KWP 00':     4,
@@ -401,6 +401,18 @@ export function TelemetryProvider({ children }) {
     });
   }, []);
 
+  // ── Generic confirm dialog (for any page — window.confirm is a no-op in Capacitor) ──
+
+  const confirmDialog = useCallback((message) => {
+    return new Promise((resolve) => {
+      setConfirmState({
+        message,
+        onConfirm: () => { setConfirmState(null); resolve(true); },
+        onCancel:  () => { setConfirmState(null); resolve(false); },
+      });
+    });
+  }, []);
+
   // ── Misc setters ──────────────────────────────────────────────────────────
 
   const updateActiveSensors = useCallback((sensors) => {
@@ -448,6 +460,7 @@ export function TelemetryProvider({ children }) {
     disconnectOBD,
     scanErrors,
     clearErrors,
+    confirmDialog,
     toggleArchiveErrors,
     refreshProfile:     fetchUserProfile,
     updateActiveSensors,
@@ -455,7 +468,7 @@ export function TelemetryProvider({ children }) {
     setTransportMode,
   }), [
     data, isLoading, isConnecting, confirmState,
-    connectOBD, disconnectOBD, scanErrors, clearErrors,
+    connectOBD, disconnectOBD, scanErrors, clearErrors, confirmDialog,
     toggleArchiveErrors, fetchUserProfile, updateActiveSensors,
     setPaused, setTransportMode,
   ]);

@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTelemetry } from '../context/TelemetryContext.jsx';
 import { getRawLogs } from '../services/db.js';
+import { api } from '../services/api.js';
 import { toast } from '../components/ui/Toast.jsx';
 
 export default function ProfilePage() {
+  const navigate = useNavigate();
   const { user, isLoading, refreshProfile } = useTelemetry();
   const [alertsEnabled, setAlertsEnabled] = useState(true);
   
@@ -26,30 +29,27 @@ export default function ProfilePage() {
   }, [user]);
 
   const handleLogout = () => {
-    localStorage.removeItem('obd_token');
+    api.logout();
     window.location.reload();
   };
 
   const handleSave = async () => {
     setIsSaving(true);
-    const token = localStorage.getItem('obd_token');
-    
-    try {
-      const response = await fetch('http://localhost:3000/api/user/profile', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(formData)
-      });
 
-      if (response.ok) {
-        await refreshProfile(); // Оновлюємо дані на екрані
-        setIsEditing(false);    // Виходимо з режиму редагування
-      }
+    try {
+      await api.updateProfile({
+        name:      formData.name,
+        email:     formData.email,
+        car_brand: formData.make,
+        car_model: formData.model,
+        vin:       formData.vin,
+      });
+      await refreshProfile(); // Оновлюємо дані на екрані
+      setIsEditing(false);    // Виходимо з режиму редагування
+      toast.success('Профіль збережено');
     } catch (error) {
-      console.error("Помилка збереження", error);
+      console.error('Помилка збереження', error);
+      toast.error(error.message || 'Не вдалося зберегти профіль');
     } finally {
       setIsSaving(false);
     }
@@ -162,6 +162,26 @@ export default function ProfilePage() {
         <p className="text-[10px] text-gray-600 text-center mt-2 px-4">
           У разі виникнення помилок зчитайте лог і надішліть його розробнику для аналізу.
         </p>
+      </div>
+
+      {/* Рейтинг + AI Асистент */}
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          onClick={() => navigate('/leaderboard')}
+          className="bg-[#111318] hover:bg-[#161922] border border-gray-800 rounded-2xl p-4 flex flex-col items-start gap-2 transition-all"
+        >
+          <span className="text-2xl">🏆</span>
+          <span className="text-xs font-bold text-white">Рейтинг</span>
+          <span className="text-[10px] text-gray-500">Топ-100 гонщиків</span>
+        </button>
+        <button
+          onClick={() => navigate('/chat')}
+          className="bg-[#111318] hover:bg-[#161922] border border-gray-800 rounded-2xl p-4 flex flex-col items-start gap-2 transition-all"
+        >
+          <span className="text-2xl">💬</span>
+          <span className="text-xs font-bold text-white">AI Асистент</span>
+          <span className="text-[10px] text-gray-500">Питання про авто</span>
+        </button>
       </div>
 
       {/* Вихід */}

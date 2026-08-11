@@ -154,8 +154,8 @@ export const dtc_uds = (hex) => {
       const d2       = byteA & 0x0F;
       const baseCode = `${letter}${d1}${d2.toString(16).toUpperCase()}${byteB}`;
 
-      // Structural validity
-      if (!/^[PCBU][0-3][0-9A-F]{4}$/.test(baseCode)) continue;
+      // Structural validity — DTC codes are 5 chars total: letter + digit(0-3) + 3 more
+      if (!/^[PCBU][0-3][0-9A-F]{3}$/.test(baseCode)) continue;
 
       // Union: keep first occurrence (ECU 0 usually most authoritative)
       if (!allCodes.has(baseCode)) {

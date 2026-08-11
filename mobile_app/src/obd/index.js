@@ -14,6 +14,13 @@ import { obdScanner } from '../services/bleService.js';
 import { commands }   from './commands.js';
 import * as decoders  from './decoders.js';
 import { saveRawLog } from '../services/db.js';
+import {
+  isStructurallyValidDtc,
+  assembleHexPayload,
+  stripNegativeResponses,
+  parseLegacyModeDtc,
+  parseUdsKwpDtc,
+} from './dtcParser.js';
 
 // ── Server config — swap URL when server is ready ─────────────────────────────
 // When SERVER_ENABLED = true the app will route OBD queries through your
@@ -27,12 +34,6 @@ export const SERVER_CONFIG = {
 
 const AT_CMD_RE  = /^AT/i;
 const MODE_NO_PID = new Set(['03', '04', '07', '08', '09']);
-
-// Ghost codes that are ALWAYS padding / J1979 artefacts — never real faults
-const GHOST_CODES = new Set([
-  'P0000','C0000','B0000','U0000',
-  'C0300','C0700','C0A00',
-]);
 
 class OBDManager {
   constructor() {
@@ -285,6 +286,11 @@ class OBDManager {
       { cmd: '190209', dec: decoders.dtc_uds, isUds: true,  name: 'Mode UDS 09' },
       { cmd: '190208', dec: decoders.dtc_uds, isUds: true,  name: 'Mode UDS 08' },
       { cmd: '190201', dec: decoders.dtc_uds, isUds: true,  name: 'Mode UDS 01' },
+      // Narrow, single-bit pendingDTC mask (0x04) — some ECUs only expose fresh
+      // codes here, missed by 09/08/01. Unlike the removed 1902FF/19020C this
+      // is a single status bit, not the full mask, so it doesn't trigger the
+      // memory-dump-scale responses those caused on other cars.
+      { cmd: '190204', dec: decoders.dtc_uds, isUds: true,  name: 'Mode UDS 04' },
       // OBD-II standard modes
       { cmd: '03',       dec: decoders.dtc,     isUds: false, name: 'Mode 03' },
       { cmd: '07',       dec: decoders.dtc,     isUds: false, name: 'Mode 07' },
@@ -303,13 +309,8 @@ class OBDManager {
       for (const item of result) {
         const baseCode = method.isUds ? item.base : item;
 
-        // ── Ghost / padding filter ──────────────────────────────────────────
-        if (GHOST_CODES.has(baseCode))               continue;
-        if (/^[PCBU]0{4}$/.test(baseCode))           continue;
-        if (!/^[PCBU][0-3][0-9A-F]{4}$/.test(baseCode)) continue;
-
-        const numericPart = baseCode.substring(1);
-        if (numericPart === '0000' || numericPart === 'FFFF') continue;
+        // ── Ghost / padding / structural filter ──────────────────────────────
+        if (!isStructurallyValidDtc(baseCode)) continue;
 
         // For non-UDS: only accept dictionary-known codes
         // (UDS statusByte gives enough confidence even for unlisted codes)
@@ -407,85 +408,25 @@ class OBDManager {
         rawUpper.includes('NO DATA')
       ) return null;
 
-      const lines = response
-        .split(/[\r\n]+/)
-        .map(l => l.replace(/[\s>]/g, '').toUpperCase());
+      let fullHexPayload = assembleHexPayload(response);
 
-      let fullHexPayload = '';
-      for (let line of lines) {
-        if (!line) continue;
-        // Strip ISO-TP CAN frame sequence numbers (e.g. "1:", "2:", "A:")
-        line = line.replace(/^[0-9A-F]{1,2}:/, '');
-        // Strip CAN PCI single-frame length nibble at start (e.g. "0140:" already stripped above)
-        fullHexPayload += line;
-      }
-
-      // ── Strip any 7Fxx negative responses from multi-ECU payload ─────────
-      // e.g. "5902FF5902FF7F197859027F" — the "7F1978" is NRC appended by one
+      // Strip any 7Fxx negative responses from multi-ECU payload — e.g.
+      // "5902FF5902FF7F197859027F" — the "7F1978" is NRC appended by one
       // ECU, we strip it so the decoder only sees valid 5902xx blocks
-      fullHexPayload = fullHexPayload.replace(/7F[0-9A-F]{2}[0-9A-F]{2}/g, (match) => {
-        // Only strip if it looks like a genuine NRC (3 bytes: 7F svc nrc)
-        // Keep it if it's part of a valid data value
-        const nrc = match.substring(4, 6);
-        const VALID_NRCS = new Set(['10','11','12','13','14','21','22','24','25','26','27',
-                                     '28','29','2A','2B','2C','2D','2E','31','33','35','37',
-                                     '38','39','3A','3B','3C','3D','3E','3F','70','71','72',
-                                     '73','74','78','7E','7F']);
-        return VALID_NRCS.has(nrc) ? '' : match;
-      });
+      fullHexPayload = stripNegativeResponses(fullHexPayload);
 
       // ── Mode 03 / 07 / 0A: parse each ECU independently ─────────────────
       if (cmd === '03' || cmd === '07' || cmd === '0A') {
-        const expectedPrefix = '4' + cmd.charAt(1);
-        let idx = fullHexPayload.indexOf(expectedPrefix);
-        if (idx === -1) return null;
-
-        const perEcuCodes = [];
-
-        while (idx !== -1) {
-          const nextIdx = fullHexPayload.indexOf(expectedPrefix, idx + 2);
-          let ecuRaw    = nextIdx !== -1
-            ? fullHexPayload.substring(idx + 2, nextIdx)
-            : fullHexPayload.substring(idx + 2);
-
-          if (ecuRaw.length % 2 !== 0) ecuRaw = ecuRaw.substring(1);
-
-          const ecuCodes = decoderFunc(ecuRaw);
-          if (Array.isArray(ecuCodes)) perEcuCodes.push(ecuCodes);
-
-          idx = nextIdx;
-        }
-
-        if (perEcuCodes.length === 0) return null;
-
-        // Union across ECUs, deduplicated
-        const seen    = new Set();
-        const unified = [];
-        for (const list of perEcuCodes) {
-          for (const code of list) {
-            if (!seen.has(code)) { seen.add(code); unified.push(code); }
-          }
-        }
-
-        if (unified.length > 0) saveRawLog('DTC_DECODED', cmd, JSON.stringify(unified));
+        const unified = parseLegacyModeDtc(cmd, fullHexPayload, decoderFunc);
+        if (unified && unified.length > 0) saveRawLog('DTC_DECODED', cmd, JSON.stringify(unified));
         return unified;
       }
 
       // ── UDS (19xx) and KWP (18xx): pass full payload ─────────────────────
       // dtc_uds handles multiple 5902 blocks internally
       if (cmd.startsWith('19') || cmd.startsWith('18')) {
-        const decoded = decoderFunc(fullHexPayload);
-        if (!Array.isArray(decoded)) return null;
-
-        // Deduplicate within this response
-        const seen   = new Set();
-        const unique = decoded.filter(item => {
-          const key = typeof item === 'object' ? item.base : item;
-          if (seen.has(key)) return false;
-          seen.add(key); return true;
-        });
-
-        if (unique.length > 0) saveRawLog('DTC_DECODED', cmd, JSON.stringify(unique));
+        const unique = parseUdsKwpDtc(fullHexPayload, decoderFunc);
+        if (unique && unique.length > 0) saveRawLog('DTC_DECODED', cmd, JSON.stringify(unique));
         return unique;
       }
 
