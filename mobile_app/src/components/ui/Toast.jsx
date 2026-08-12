@@ -63,16 +63,16 @@ export function ToastContainer() {
           <div
             key={t.id}
             className={`
-              flex items-center gap-3 px-4 py-3 rounded-2xl border backdrop-blur-md
+              w-full max-w-md flex items-start gap-3 px-4 py-3 rounded-2xl border backdrop-blur-md
               shadow-[0_8px_32px_rgba(0,0,0,0.4)] pointer-events-auto
               animate-in slide-in-from-top-3 duration-200
               ${s.bg} ${s.border}
             `}
           >
-            <span className={`text-xs font-bold w-4 h-4 rounded-full border flex items-center justify-center ${s.color} border-current`}>
+            <span className={`text-xs font-bold w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0 mt-0.5 ${s.color} border-current`}>
               {s.icon}
             </span>
-            <span className="text-sm text-gray-200 font-medium">{t.message}</span>
+            <span className="text-sm text-gray-200 font-medium min-w-0 break-words">{t.message}</span>
           </div>
         );
       })}

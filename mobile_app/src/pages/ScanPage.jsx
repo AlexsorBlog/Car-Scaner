@@ -47,7 +47,9 @@ export default function ScanPage() {
       // User cancelling the native picker also lands here — don't show an
       // error toast for that specific case.
       if (!/cancel/i.test(err.message || '')) {
-        toast.error(err.message || 'Не вдалося виконати сканування');
+        console.error('[Scan] Camera/upload failed:', err.code, err.message, err);
+        const label = err.code ? `[${err.code}] ${err.message || ''}` : (err.message || 'Не вдалося виконати сканування');
+        toast.error(label);
       }
     } finally {
       setIsScanning(false);
