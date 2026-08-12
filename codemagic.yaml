@@ -11,6 +11,8 @@ workflows:
     environment:
       node: 22
       xcode: latest
+      vars:
+        VITE_API_URL: "https://truecar.systems"
       ios_signing:
         distribution_type: app_store
         bundle_identifier: ua.com.carsense
