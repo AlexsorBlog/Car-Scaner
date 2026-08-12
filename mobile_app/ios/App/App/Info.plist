@@ -12,6 +12,8 @@
     <string>Додаток використовує камеру, щоб сфотографувати пошкодження авто для AI-аналізу</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Додаток використовує фотогалерею, щоб завантажити фото авто для AI-аналізу</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>Додаток зберігає зроблені фото авто у вашу фотогалерею</string>
     <key>CAPACITOR_DEBUG</key>
     <string>$(CAPACITOR_DEBUG)</string>
     <key>CFBundleDevelopmentRegion</key>
