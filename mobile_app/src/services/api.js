@@ -91,14 +91,14 @@ export const api = {
   // ── Chat ─────────────────────────────────────────────────────────────────────
 
   async sendMessage({ message, chat_type = 'main', imageFile = null }) {
-    if (imageFile) {
-      const fd = new FormData();
-      fd.append('message', message || '');
-      fd.append('chat_type', chat_type);
-      fd.append('image', imageFile);
-      return request('POST', '/api/chat', fd, true);
-    }
-    return request('POST', '/api/chat', { message, chat_type });
+    // The backend always expects multipart/form-data for this endpoint
+    // (message/chat_type/image are all Form fields, even without an image) —
+    // sending JSON here would silently fail to parse server-side.
+    const fd = new FormData();
+    fd.append('message', message || '');
+    fd.append('chat_type', chat_type);
+    if (imageFile) fd.append('image', imageFile);
+    return request('POST', '/api/chat', fd, true);
   },
 
   async getChatHistory(chat_type = 'main') {

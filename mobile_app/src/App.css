@@ -78,6 +78,10 @@ html, body {
   overflow: hidden;
   position: fixed;
   width: 100%;
+  /* Blocks double-tap-to-zoom and pinch-zoom gestures at the browser level —
+     the viewport meta tag's user-scalable=no alone isn't reliably honored by
+     WKWebView on iOS, this is the belt-and-suspenders fix */
+  touch-action: pan-x pan-y;
 }
 
 #root {
@@ -95,6 +99,7 @@ html, body {
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
 }
 
 /* Utility classes if you need them on specific elements (modals, headers) */
