@@ -2,6 +2,7 @@
 POST /api/perf            — save a new perf run
 GET  /api/perf/mine       — get own records
 GET  /api/perf/leaderboard— global leaderboard (?filter=0-100&brand=BMW&offset=&limit=)
+GET  /api/perf/user/{id}  — public profile (name/car/avatar + best run per filter)
 """
 
 from typing import Any
@@ -107,4 +108,38 @@ async def get_leaderboard(
         "offset": offset,
         "limit": limit,
         "has_more": offset + len(rows) < total_count,
+    }
+
+
+# ── Public profile (from clicking a leaderboard entry) ────────────────────────
+# Only ever returns public-safe fields — never phone/email/vin/password_hash,
+# regardless of whether the viewer is looking at their own or someone else's.
+
+@router.get("/user/{user_id}")
+async def get_public_profile(user_id: int, _auth_user: dict = Depends(require_auth)):
+    user = await queries.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    records = await queries.get_user_best_records(user_id)
+
+    return {
+        "user": {
+            "id":            user["id"],
+            "name":          user["name"],
+            "car_brand":     user["car_brand"],
+            "car_model":     user["car_model"],
+            "avatar_base64": user.get("avatar_base64"),
+            "avatar_mime":   user.get("avatar_mime"),
+        },
+        "records": [
+            {
+                "filter_key": r["filter_key"],
+                "time_ms":    r["time_ms"],
+                "distance_m": r["distance_m"],
+                "telemetry":  r["telemetry_json"] or [],
+                "recorded_at": r["recorded_at"],
+            }
+            for r in records
+        ],
     }

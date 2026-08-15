@@ -145,12 +145,13 @@ export default function LeaderboardPage() {
           <div className="text-center py-10 text-gray-500 text-xs">Нічого не знайдено за цим фільтром.</div>
         ) : (
           board.map((entry) => (
-            <div
+            <button
               key={`${entry.rank}-${entry.user_id}`}
-              className={`flex items-center gap-3 p-3.5 rounded-xl border ${
+              onClick={() => navigate(`/leaderboard/user/${entry.user_id}`)}
+              className={`w-full flex items-center gap-3 p-3.5 rounded-xl border text-left transition-colors ${
                 entry.is_me
-                  ? 'bg-blue-900/20 border-blue-700/50'
-                  : 'bg-[#111318] border-gray-800'
+                  ? 'bg-blue-900/20 border-blue-700/50 hover:bg-blue-900/30'
+                  : 'bg-[#111318] border-gray-800 hover:bg-[#161922]'
               }`}
             >
               <div className="w-8 text-center font-black text-sm text-gray-400">
@@ -165,7 +166,7 @@ export default function LeaderboardPage() {
                 </div>
               </div>
               <div className="text-sm font-black text-blue-400 flex-shrink-0">{formatTime(entry.time_ms)}</div>
-            </div>
+            </button>
           ))
         )}
 

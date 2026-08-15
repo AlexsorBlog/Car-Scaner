@@ -51,6 +51,16 @@ async def update_user(*, id, name, car_brand, car_model, car_year, vin, email=""
         return _row(record)
 
 
+async def update_avatar(*, id, avatar_base64, avatar_mime):
+    async with db.pool.acquire() as conn:
+        record = await conn.fetchrow(
+            """UPDATE users SET avatar_base64=$2, avatar_mime=$3, updated_at=now()
+               WHERE id=$1 RETURNING *""",
+            id, avatar_base64, avatar_mime,
+        )
+        return _row(record)
+
+
 # ── Perf records ─────────────────────────────────────────────────────────────
 
 async def insert_perf_record(*, user_id, filter_key, car_brand, car_model, time_ms, distance_m, telemetry_json):
@@ -66,6 +76,21 @@ async def get_user_perf_records(user_id):
     async with db.pool.acquire() as conn:
         records = await conn.fetch(
             "SELECT * FROM perf_records WHERE user_id=$1 ORDER BY time_ms ASC LIMIT 50", user_id
+        )
+        return _rows(records)
+
+
+# Best (lowest time_ms) run per filter_key for one user — used by the public
+# profile view so every leaderboard entry can show a full breakdown, not just
+# the top-3 the leaderboard list itself keeps light.
+async def get_user_best_records(user_id):
+    async with db.pool.acquire() as conn:
+        records = await conn.fetch(
+            """SELECT DISTINCT ON (filter_key) *
+               FROM perf_records
+               WHERE user_id = $1
+               ORDER BY filter_key, time_ms ASC""",
+            user_id,
         )
         return _rows(records)
 

@@ -31,6 +31,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS car_year      INTEGER;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS vin           TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at    TIMESTAMPTZ NOT NULL DEFAULT now();
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email         TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_base64 TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_mime   TEXT;
 
 -- Some environments still have created_at as a leftover TIMESTAMP (no tz)
 -- from a much older schema version — CREATE TABLE IF NOT EXISTS never

@@ -60,7 +60,7 @@ export function TelemetryProvider({ children }) {
     lastScanTime:      null,
     showArchiveErrors: false,   // ← new: controls archive dropdown in UI
     history:           { speed: [], rpm: [], temp: [], fuel: [] },
-    user:              { name: '', email: '', vehicle: '', vin: '', odometer: '', make: '', model: '' },
+    user:              { name: '', email: '', vehicle: '', vin: '', odometer: '', make: '', model: '', avatarBase64: null, avatarMime: null },
     profileError:      null,
   });
 
@@ -92,19 +92,22 @@ export function TelemetryProvider({ children }) {
     try {
       const profile = await api.getProfile();
       user = {
-        name:    profile.name  || '',
-        email:   profile.email || '',
-        vehicle: [profile.car_brand, profile.car_model].filter(Boolean).join(' '),
-        vin:     profile.vin   || '',
-        make:    profile.car_brand || '',
-        model:   profile.car_model || '',
+        id:            profile.id,
+        name:          profile.name  || '',
+        email:         profile.email || '',
+        vehicle:       [profile.car_brand, profile.car_model].filter(Boolean).join(' '),
+        vin:           profile.vin   || '',
+        make:          profile.car_brand || '',
+        model:         profile.car_model || '',
+        avatarBase64:  profile.avatar_base64 || null,
+        avatarMime:    profile.avatar_mime   || null,
       };
     } catch (err) {
       // Backend not reachable yet (or request failed) — degrade gracefully
       // instead of blocking the whole app; surface it via profileError.
       console.warn('[Telemetry] fetchUserProfile: could not reach server —', err.message);
       profileError = err.message;
-      user = { name: 'Гість (офлайн)', email: '', vehicle: '', vin: '', make: '', model: '' };
+      user = { name: 'Гість (офлайн)', email: '', vehicle: '', vin: '', make: '', model: '', avatarBase64: null, avatarMime: null };
     }
 
     try {

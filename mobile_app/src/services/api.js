@@ -62,6 +62,12 @@ export const api = {
     return request('PUT', '/api/auth/profile', payload);
   },
 
+  async updateAvatar(imageFile) {
+    const fd = new FormData();
+    fd.append('avatar', imageFile);
+    return request('PUT', '/api/auth/avatar', fd, true);
+  },
+
   // ── Performance ─────────────────────────────────────────────────────────────
 
   async savePerfRecord({ filter_key, time_ms, distance_m = 0, telemetry = [] }) {
@@ -76,6 +82,10 @@ export const api = {
     const params = new URLSearchParams({ filter, offset, limit });
     if (brand) params.set('brand', brand);
     return request('GET', `/api/perf/leaderboard?${params}`);
+  },
+
+  async getPublicProfile(userId) {
+    return request('GET', `/api/perf/user/${userId}`);
   },
 
   // ── Daily summary ────────────────────────────────────────────────────────────

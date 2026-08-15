@@ -29,6 +29,7 @@ const ScanPage         = lazy(() => import('./pages/ScanPage.jsx'));
 const ServicesPage     = lazy(() => import('./pages/ServicesPage.jsx'));
 const ProfilePage      = lazy(() => import('./pages/ProfilePage.jsx'));
 const LeaderboardPage  = lazy(() => import('./pages/LeaderboardPage.jsx'));
+const PublicProfilePage = lazy(() => import('./pages/PublicProfilePage.jsx'));
 const ChatPage         = lazy(() => import('./pages/ChatPage.jsx'));
 const BluetoothTest    = lazy(() => import('./pages/BluetoothTest.jsx'));
 
@@ -66,8 +67,9 @@ function App() {
             <Route path="/login" element={<LoginPage />} />
 
             {/* Full-screen pages — own header/exit button, no bottom nav */}
-            <Route path="/leaderboard" element={<PrivateRoute><LeaderboardPage /></PrivateRoute>} />
-            <Route path="/chat"        element={<PrivateRoute><ChatPage /></PrivateRoute>} />
+            <Route path="/leaderboard"           element={<PrivateRoute><LeaderboardPage /></PrivateRoute>} />
+            <Route path="/leaderboard/user/:id"  element={<PrivateRoute><PublicProfilePage /></PrivateRoute>} />
+            <Route path="/chat"                  element={<PrivateRoute><ChatPage /></PrivateRoute>} />
 
             {/* Protected tab routes */}
             <Route

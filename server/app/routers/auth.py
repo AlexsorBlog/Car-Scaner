@@ -5,9 +5,10 @@ GET  /api/auth/profile   — get own profile
 PUT  /api/auth/profile   — update own profile
 """
 
+import base64
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from .. import queries
@@ -17,6 +18,7 @@ from ..rate_limit import limiter
 router = APIRouter()
 
 PHONE_RE = re.compile(r"^\+?[0-9]{7,15}$")
+MAX_AVATAR_BYTES = 3 * 1024 * 1024  # 3MB — client compresses to well under this before upload
 
 
 def _safe_user(user: dict) -> dict:
@@ -134,4 +136,19 @@ async def update_profile(body: UpdateProfileBody, auth_user: dict = Depends(requ
         vin=body.vin if body.vin is not None else existing["vin"],
         email=body.email if body.email is not None else existing["email"],
     )
+    return {"ok": True, "user": _safe_user(updated)}
+
+
+# ── Update avatar ─────────────────────────────────────────────────────────────
+
+@router.put("/avatar")
+async def update_avatar(avatar: UploadFile = File(...), auth_user: dict = Depends(require_auth)):
+    if not (avatar.content_type or "").startswith("image/"):
+        raise HTTPException(400, "Uploaded file must be an image")
+    raw = await avatar.read()
+    if len(raw) > MAX_AVATAR_BYTES:
+        raise HTTPException(413, "Avatar image too large")
+
+    avatar_base64 = base64.b64encode(raw).decode()
+    updated = await queries.update_avatar(id=auth_user["id"], avatar_base64=avatar_base64, avatar_mime=avatar.content_type)
     return {"ok": True, "user": _safe_user(updated)}

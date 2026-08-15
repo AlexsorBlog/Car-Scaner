@@ -22,3 +22,4 @@ server/.env
 /server/app/__pycache__
 server/.env
 server/.env
+server/.env
