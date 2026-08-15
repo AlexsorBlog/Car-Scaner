@@ -2,21 +2,27 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { useTelemetry } from '../context/TelemetryContext.jsx';
-import { getRawLogs } from '../services/db.js';
+import { getRawLogs, clearRawLogs } from '../services/db.js';
 import { api } from '../services/api.js';
 import { compressImage } from '../utils/compressImage.js';
 import { toast } from '../components/ui/Toast.jsx';
+import carModels from '../data/carModels.json';
+
+const CAR_BRANDS = Object.keys(carModels).sort((a, b) => a.localeCompare(b));
 
 export default function ProfilePage() {
   const navigate = useNavigate();
-  const { user, isLoading, refreshProfile } = useTelemetry();
+  const { user, isLoading, refreshProfile, confirmDialog } = useTelemetry();
   const [alertsEnabled, setAlertsEnabled] = useState(true);
 
   // Стан для режиму редагування
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isClearingLogs, setIsClearingLogs] = useState(false);
   const [formData, setFormData] = useState({ name: '', email: '', make: '', model: '', vin: '' });
+
+  const modelsForBrand = (formData.make && carModels[formData.make]) || [];
 
   // Коли дані юзера завантажились, заповнюємо форму
   useEffect(() => {
@@ -59,6 +65,11 @@ export default function ProfilePage() {
   };
 
   const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
+
+  const handleBrandChange = (e) => {
+    // Changing brand invalidates whatever model was picked for the old one
+    setFormData({ ...formData, make: e.target.value, model: '' });
+  };
 
   const handleAvatarTap = async () => {
     if (isUploadingAvatar) return;
@@ -104,6 +115,21 @@ export default function ProfilePage() {
     } catch (err) {
       console.error("Помилка експорту логів", err);
       toast.error('Не вдалося експортувати логи.');
+    }
+  };
+
+  const handleClearLogs = async () => {
+    const ok = await confirmDialog('Очистити журнал діагностики ЕБУ? Дію не можна відмінити.');
+    if (!ok) return;
+    setIsClearingLogs(true);
+    try {
+      await clearRawLogs();
+      toast.success('Журнал очищено');
+    } catch (err) {
+      console.error('Помилка очищення логів', err);
+      toast.error('Не вдалося очистити журнал');
+    } finally {
+      setIsClearingLogs(false);
     }
   };
 
@@ -183,8 +209,16 @@ export default function ProfilePage() {
             <div className="text-[10px] text-gray-500 font-bold">МАРКА ТА МОДЕЛЬ</div>
             {isEditing ? (
               <div className="flex gap-2">
-                <input type="text" name="make" value={formData.make} onChange={handleChange} className="w-1/2 bg-gray-900 border border-gray-700 rounded p-2 text-sm text-white focus:outline-none focus:border-blue-500" placeholder="Марка" />
-                <input type="text" name="model" value={formData.model} onChange={handleChange} className="w-1/2 bg-gray-900 border border-gray-700 rounded p-2 text-sm text-white focus:outline-none focus:border-blue-500" placeholder="Модель" />
+                <select name="make" value={formData.make} onChange={handleBrandChange} className="w-1/2 bg-gray-900 border border-gray-700 rounded p-2 text-sm text-white focus:outline-none focus:border-blue-500">
+                  <option value="">Марка</option>
+                  {formData.make && !carModels[formData.make] && <option value={formData.make}>{formData.make}</option>}
+                  {CAR_BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                </select>
+                <select name="model" value={formData.model} onChange={handleChange} disabled={!formData.make} className="w-1/2 bg-gray-900 border border-gray-700 rounded p-2 text-sm text-white focus:outline-none focus:border-blue-500 disabled:opacity-50">
+                  <option value="">Модель</option>
+                  {formData.model && !modelsForBrand.includes(formData.model) && <option value={formData.model}>{formData.model}</option>}
+                  {modelsForBrand.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
               </div>
             ) : (
               <div className="text-sm font-bold text-white">{user.vehicle}</div>
@@ -193,9 +227,16 @@ export default function ProfilePage() {
           <div className="p-4 flex flex-col gap-1">
             <div className="text-[10px] text-gray-500 font-bold">VIN НОМЕР</div>
             {isEditing ? (
-              <input type="text" name="vin" value={formData.vin} onChange={handleChange} className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm text-white font-mono focus:outline-none focus:border-blue-500 uppercase" placeholder="VIN код" />
+              <>
+                <input type="text" name="vin" value={formData.vin} onChange={handleChange} className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm text-white font-mono focus:outline-none focus:border-blue-500 uppercase" placeholder="VIN код" maxLength={17} />
+                {!formData.vin && (
+                  <p className="text-[10px] text-gray-600 mt-1">Можна залишити порожнім — визначиться автоматично при першому підключенні до авто.</p>
+                )}
+              </>
             ) : (
-              <div className="text-sm font-bold text-gray-300 font-mono tracking-widest">{user.vin}</div>
+              user.vin
+                ? <div className="text-sm font-bold text-gray-300 font-mono tracking-widest">{user.vin}</div>
+                : <div className="text-xs text-gray-600">Ще не визначено — підключіться до авто</div>
             )}
           </div>
         </div>
@@ -204,15 +245,31 @@ export default function ProfilePage() {
       {/* Розробник / Діагностика */}
       <div>
         <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">СЛУЖБОВА ІНФОРМАЦІЯ</h3>
-        <button 
-          onClick={exportDiagnosticLogs} 
-          className="w-full bg-[#111318] hover:bg-[#161922] border border-gray-800 text-gray-300 font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2"
-        >
-          <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
-          ЕКСПОРТУВАТИ ЛОГИ ЕБУ
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={exportDiagnosticLogs}
+            className="flex-1 bg-[#111318] hover:bg-[#161922] border border-gray-800 text-gray-300 font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2"
+          >
+            <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+            КОПІЮВАТИ
+          </button>
+          <button
+            onClick={handleClearLogs}
+            disabled={isClearingLogs}
+            className="w-14 bg-[#111318] hover:bg-red-950/40 border border-gray-800 hover:border-red-900/50 text-gray-400 hover:text-red-400 font-bold py-3.5 rounded-xl transition-all flex items-center justify-center disabled:opacity-50"
+            aria-label="Очистити журнал"
+          >
+            {isClearingLogs ? (
+              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            )}
+          </button>
+        </div>
         <p className="text-[10px] text-gray-600 text-center mt-2 px-4">
-          У разі виникнення помилок зчитайте лог і надішліть його розробнику для аналізу.
+          Журнал ЕБУ — сирі команди та відповіді OBD-II. «Копіювати» — скопіювати
+          в буфер обміну (наприклад, для Telegram). «Очистити» — стерти журнал
+          перед новою діагностикою.
         </p>
       </div>
 

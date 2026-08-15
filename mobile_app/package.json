@@ -8,7 +8,9 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:dtc": "node src/obd/__tests__/dtcParser.test.mjs"
+    "test:dtc": "node src/obd/__tests__/dtcParser.test.mjs",
+    "test:vin": "node src/obd/__tests__/vinParser.test.mjs",
+    "test": "npm run test:dtc && npm run test:vin"
   },
   "dependencies": {
     "@capacitor-community/bluetooth-le": "^8.1.3",

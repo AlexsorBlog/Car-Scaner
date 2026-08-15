@@ -7,6 +7,17 @@ export const hexToInt  = (hex) => parseInt(hex, 16);
 export const clamp     = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 export const twoBytes  = (hex) => hexToInt(hex.substring(0, 4));
 
+// Strips ISO-TP frame sequence numbers (e.g. "1:", "2:") per-line, BEFORE
+// newlines get collapsed elsewhere. Once collapsed, a frame marker is
+// indistinguishable from a coincidental digit+colon+digit pattern that
+// happens to land inside the payload itself — this used to corrupt
+// multi-frame responses like VIN when done post-hoc via regex.
+export const stripFrameMarkers = (response) =>
+  response
+    .split(/[\r\n]+/)
+    .map(line => line.replace(/^\s*[0-9A-Fa-f]{1,2}:/, ''))
+    .join('');
+
 export const raw_string = (hex) => hex;
 export const drop = () => null;
 
@@ -194,11 +205,15 @@ export const dtc_kwp = (hex) => {
 // ── String / misc decoders ────────────────────────────────────────────────────
 
 export const decodeEncodedString = (hex) => {
-  // Strip ISO-TP frame numbers (e.g. "1:002D" → strip "1:")
-  const clean = hex.replace(/[0-9A-Fa-f]{1,2}:[0-9A-Fa-f]/g, m => m.slice(2));
+  // Frame-number markers (e.g. "1:") are now stripped upstream in
+  // query(), per-line, before newlines are collapsed — doing it here via
+  // regex on the already-joined string was ambiguous (a real "1:" frame
+  // marker is indistinguishable from a coincidental digit+colon+digit
+  // pattern inside the payload itself) and used to corrupt multi-frame
+  // strings like VIN.
   let str = '';
-  for (let i = 0; i + 1 < clean.length; i += 2) {
-    const code = parseInt(clean.substr(i, 2), 16);
+  for (let i = 0; i + 1 < hex.length; i += 2) {
+    const code = parseInt(hex.substr(i, 2), 16);
     if (code === 0) continue;
     if (code >= 32 && code < 127) str += String.fromCharCode(code);
   }

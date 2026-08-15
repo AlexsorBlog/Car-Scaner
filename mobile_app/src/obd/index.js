@@ -33,7 +33,11 @@ export const SERVER_CONFIG = {
 };
 
 const AT_CMD_RE  = /^AT/i;
-const MODE_NO_PID = new Set(['03', '04', '07', '08', '09']);
+// Modes with no PID/InfoType byte after the mode itself — Mode 09 does NOT
+// belong here (0901, 0902/VIN, 0904, etc. all have an InfoType byte, exactly
+// like every PID-bearing mode below); treating it as PID-less used to leave
+// that InfoType byte sitting in the data, corrupting the fixed-length slice.
+const MODE_NO_PID = new Set(['03', '04', '07', '08']);
 
 class OBDManager {
   constructor() {
@@ -90,7 +94,9 @@ class OBDManager {
 
     if (!response) return null;
 
-    const clean = response.replace(/[\s\r\n]/g, '').toUpperCase();
+    const deFramed = decoders.stripFrameMarkers(response);
+
+    const clean = deFramed.replace(/[\s\r\n]/g, '').toUpperCase();
 
     if (
       clean.includes('NODATA') || clean.includes('TIMEOUT') ||

@@ -26,7 +26,10 @@ import {
   saveDiagnosticReport,
 } from '../services/db.js';
 import { api } from '../services/api.js';
+import { toast } from '../components/ui/Toast.jsx';
 import dtcDictionary from '../obd/codes.json';
+
+const VIN_RE = /^[A-HJ-NPR-Z0-9]{17}$/; // standard VIN: 17 chars, no I/O/Q
 
 // ── Polling tiers ─────────────────────────────────────────────────────────────
 
@@ -223,6 +226,25 @@ export function TelemetryProvider({ children }) {
     }
   }, []);
 
+  // ── Auto-grab VIN on first successful connect (only if not already set —
+  // never overwrites a VIN the user typed in themselves) ──────────────────
+
+  const _tryAutoGrabVin = useCallback(async (currentUser) => {
+    if (currentUser?.vin) return false; // user already has one on file — don't touch it
+    if (!currentUser?.name) return false; // server requires name on every profile update
+    try {
+      const res = await obd.query(commands['VIN']);
+      const vin = (res?.value || '').toUpperCase();
+      if (!VIN_RE.test(vin)) return false; // garbage/partial read — don't save junk
+
+      await api.updateProfile({ name: currentUser.name, vin });
+      return true;
+    } catch (err) {
+      console.warn('[Telemetry] VIN auto-grab failed:', err.message);
+      return false;
+    }
+  }, []);
+
   // ── Connect ───────────────────────────────────────────────────────────────
 
   const connectOBD = useCallback(async () => {
@@ -245,6 +267,15 @@ export function TelemetryProvider({ children }) {
       _startPolling(controller.signal).catch(err =>
         console.error('[Telemetry] polling loop crashed:', err)
       );
+
+      // Fire-and-forget — don't block the connect flow on a VIN read
+      _tryAutoGrabVin(data.user).then((didSave) => {
+        if (didSave) {
+          fetchUserProfile();
+          toast.success('VIN автомобіля визначено автоматично');
+        }
+      });
+
       return true;
     } catch (err) {
       console.error('[Telemetry] connectOBD:', err);
@@ -252,7 +283,7 @@ export function TelemetryProvider({ children }) {
     } finally {
       setIsConnecting(false);
     }
-  }, [data.isConnected, isConnecting, _startPolling]);
+  }, [data.isConnected, isConnecting, _startPolling, data.user, _tryAutoGrabVin, fetchUserProfile]);
 
   // ── Disconnect ────────────────────────────────────────────────────────────
 

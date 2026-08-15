@@ -242,6 +242,23 @@ export async function getRawLogs() {
   }
 }
 
+export async function clearRawLogs() {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const db = await getNativeDB();
+      await db.run(`DELETE FROM obd_raw_logs`);
+    } catch (err) { console.error('[DB] SQLite clearRawLogs failed:', err); }
+    return;
+  }
+
+  try {
+    const db = await getDB();
+    const tx = db.transaction('obd_raw_logs', 'readwrite');
+    tx.objectStore('obd_raw_logs').clear();
+    await txPromise(tx);
+  } catch (err) { console.error('[DB] clearRawLogs failed:', err); }
+}
+
 // ── Public API (Reports & Profile) ────────────────────────────────────────────
 
 export async function saveDiagnosticReport(type, data) {
