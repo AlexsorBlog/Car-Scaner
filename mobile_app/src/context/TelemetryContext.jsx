@@ -262,19 +262,28 @@ export function TelemetryProvider({ children }) {
         pollingAbort.current = null;
       };
 
+      // MUST run to completion before polling starts — the BLE transport has
+      // only a single in-flight command slot (bleService.js's _setupPending
+      // silently discards whatever was still pending when a new command is
+      // sent, without ever resolving/rejecting it). Firing this concurrently
+      // with the polling loop's first tick corrupts the response stream for
+      // both, which previously caused the whole app to hang waiting on data
+      // that would never arrive correctly.
+      try {
+        const didSave = await _tryAutoGrabVin(data.user);
+        if (didSave) {
+          fetchUserProfile();
+          toast.success('VIN автомобіля визначено автоматично');
+        }
+      } catch (err) {
+        console.warn('[Telemetry] VIN auto-grab step failed, continuing:', err.message);
+      }
+
       const controller = new AbortController();
       pollingAbort.current = controller;
       _startPolling(controller.signal).catch(err =>
         console.error('[Telemetry] polling loop crashed:', err)
       );
-
-      // Fire-and-forget — don't block the connect flow on a VIN read
-      _tryAutoGrabVin(data.user).then((didSave) => {
-        if (didSave) {
-          fetchUserProfile();
-          toast.success('VIN автомобіля визначено автоматично');
-        }
-      });
 
       return true;
     } catch (err) {
