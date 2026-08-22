@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useTelemetry } from '../context/TelemetryContext.jsx';
 import { api } from '../services/api.js';
 import { toast } from '../components/ui/Toast.jsx';
+import { renderMessageContent } from '../components/chat/formatMessage.jsx';
 
 const TABS = [
   { key: 'main',  label: 'Асистент' },
@@ -81,7 +82,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#050505] flex flex-col">
+    <div className="min-h-[100dvh] bg-[#050505] flex flex-col">
       {/* HEADER */}
       <div className="flex items-center justify-between px-5 pt-6 pb-3">
         <button
@@ -137,7 +138,7 @@ export default function ChatPage() {
                     : 'bg-[#111318] border border-gray-800 text-gray-200 rounded-bl-md'
                 }`}
               >
-                {m.content}
+                {renderMessageContent(m.content)}
               </div>
             </div>
           ))

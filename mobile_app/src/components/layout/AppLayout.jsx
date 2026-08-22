@@ -4,8 +4,8 @@ import BottomNav from './BottomNav';
 
 export default function AppLayout() {
   return (
-    <div className="bg-[#050505] text-white min-h-screen font-sans overflow-x-hidden selection:bg-blue-500/30">
-      <main className="pb-24 min-h-screen">
+    <div className="bg-[#050505] text-white min-h-[100dvh] font-sans overflow-x-hidden selection:bg-blue-500/30">
+      <main className="pb-24 min-h-[100dvh]">
         <Outlet />
       </main>
       <BottomNav />

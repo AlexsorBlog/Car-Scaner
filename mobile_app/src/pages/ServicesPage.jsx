@@ -7,8 +7,10 @@ import { Capacitor } from '@capacitor/core';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
+const KYIV_FALLBACK = [50.4501, 30.5234];
+
 // ── 1. NEW COMPONENT: Fix Map Sizing ──────────────────────────────────────────
-// Цей компонент вирішує проблему "чорного екрану", примусово змушуючи 
+// Цей компонент вирішує проблему "чорного екрану", примусово змушуючи
 // Leaflet перемалювати тайли після того, як контейнер отримав свої розміри.
 function FixMapRender() {
   const map = useMap();
@@ -38,10 +40,10 @@ function RecenterMap({ position }) {
   return null;
 }
 
-// ── Map drag event listener ──────────────────────────────────────────────────
-function MapEvents({ onBoundsChange }) {
+// ── Map drag/move event listener ──────────────────────────────────────────────
+function MapEvents({ onBoundsChange, onUserDrag }) {
   const map = useMap();
-  
+
   useEffect(() => {
     let timeout;
     const handleMoveEnd = () => {
@@ -49,18 +51,23 @@ function MapEvents({ onBoundsChange }) {
       timeout = setTimeout(() => {
         const center = map.getCenter();
         onBoundsChange([center.lat, center.lng]);
-      }, 800); 
+      }, 800);
     };
+    // Fires only on a real user-initiated drag — NOT on our own
+    // programmatic flyTo() — this is how we know to stop auto-following.
+    const handleDragStart = () => onUserDrag?.();
 
     map.on('moveend', handleMoveEnd);
     map.on('zoomend', handleMoveEnd);
+    map.on('dragstart', handleDragStart);
 
     return () => {
       map.off('moveend', handleMoveEnd);
       map.off('zoomend', handleMoveEnd);
+      map.off('dragstart', handleDragStart);
       clearTimeout(timeout);
     };
-  }, [map, onBoundsChange]);
+  }, [map, onBoundsChange, onUserDrag]);
 
   return null;
 }
@@ -125,8 +132,10 @@ function haversineKm([lat1, lon1], [lat2, lon2]) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// ── Overpass query ────────────────────────────────────────────────────────────
-async function fetchNearbyShops([lat, lon], radiusM = 5000) {
+// ── Overpass query — the free public instance occasionally times out under
+// load (a real, external reliability issue, not a query bug); retry once
+// before giving up instead of silently returning nothing ─────────────────────
+async function fetchNearbyShops([lat, lon], radiusM = 5000, attempt = 1) {
   const query = `
     [out:json][timeout:15];
     (
@@ -136,20 +145,29 @@ async function fetchNearbyShops([lat, lon], radiusM = 5000) {
     );
     out center 40;
   `;
-  const res = await fetch('https://overpass-api.de/api/interpreter', {
-    method: 'POST',
-    body: 'data=' + encodeURIComponent(query),
-  });
-  const json = await res.json();
-  return (json.elements || []).map(el => ({
-    id: el.id,
-    name: el.tags?.name || 'СТО без назви',
-    lat: el.lat ?? el.center?.lat,
-    lon: el.lon ?? el.center?.lon,
-    phone: el.tags?.phone || el.tags?.['contact:phone'] || null,
-    opening: el.tags?.opening_hours || null,
-    isPartner: false,
-  })).filter(s => s.lat && s.lon);
+  try {
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: 'data=' + encodeURIComponent(query),
+    });
+    if (!res.ok) throw new Error(`Overpass API: HTTP ${res.status}`);
+    const json = await res.json();
+    return (json.elements || []).map(el => ({
+      id: el.id,
+      name: el.tags?.name || 'СТО без назви',
+      lat: el.lat ?? el.center?.lat,
+      lon: el.lon ?? el.center?.lon,
+      phone: el.tags?.phone || el.tags?.['contact:phone'] || null,
+      opening: el.tags?.opening_hours || null,
+      isPartner: false,
+    })).filter(s => s.lat && s.lon);
+  } catch (err) {
+    if (attempt < 2) {
+      await new Promise(r => setTimeout(r, 1500));
+      return fetchNearbyShops([lat, lon], radiusM, attempt + 1);
+    }
+    throw err;
+  }
 }
 
 // ── Open native maps ──────────────────────────────────────────────────────────
@@ -180,85 +198,112 @@ export default function ServicesPage() {
   const [closestShop, setClosestShop]     = useState(null);
   const [isLocating, setIsLocating]       = useState(true);
   const [isFetchingShops, setIsFetchingShops] = useState(false);
+  const [shopsError, setShopsError]       = useState(null);
   const [locationError, setLocationError] = useState(null);
   const [searchQuery, setSearchQuery]     = useState('');
   const [mapCenter, setMapCenter]         = useState(null);
+  // Auto-follow the live GPS dot until the user manually drags the map —
+  // exactly like every other navigation/maps app.
+  const [isFollowing, setIsFollowing]     = useState(true);
 
-  // ── Get user location ───────────────────────────────────────────────────────
-  const getLocation = useCallback(async () => {
-    setIsLocating(true);
-    setLocationError(null);
+  const isFollowingRef = useRef(true);
+  useEffect(() => { isFollowingRef.current = isFollowing; }, [isFollowing]);
+
+  const hasFetchedInitialRef = useRef(false);
+
+  // ── Load shops around a point (initial load, retry, radius expand) ──────────
+  const loadShops = useCallback(async (pos, radiusM = 5000) => {
+    setIsFetchingShops(true);
+    setShopsError(null);
     try {
-      let pos;
-      if (Capacitor.isNativePlatform()) {
-        const perm = await Geolocation.requestPermissions();
-        if (perm.location !== 'granted') throw new Error('Дозвіл відхилено');
-        const coords = await Geolocation.getCurrentPosition({ enableHighAccuracy: true });
-        pos = [coords.coords.latitude, coords.coords.longitude];
-      } else {
-        pos = await new Promise((res, rej) =>
-          navigator.geolocation.getCurrentPosition(
-            p => res([p.coords.latitude, p.coords.longitude]),
-            e => rej(e),
-            { enableHighAccuracy: true }
-          )
-        );
+      const found = await fetchNearbyShops(pos, radiusM);
+      const withDist = found.map(s => ({
+        ...s,
+        distKm: haversineKm(pos, [s.lat, s.lon]),
+      })).sort((a, b) => a.distKm - b.distKm);
+
+      setShops(withDist);
+      if (withDist.length > 0) {
+        setClosestShop(withDist[0]);
+        setSelectedShop(withDist[0]);
       }
-      setPosition(pos);
-      setMapCenter(pos);
-      return pos;
     } catch (err) {
-      setLocationError('Не вдалось визначити локацію');
-      const fallback = [50.4501, 30.5234]; // Kyiv
-      setPosition(fallback);
-      setMapCenter(fallback);
-      return fallback;
+      console.error('[Services] fetchNearbyShops failed:', err);
+      setShopsError(err.message || 'Не вдалося завантажити СТО');
+      setShops([]);
     } finally {
-      setIsLocating(false);
+      setIsFetchingShops(false);
     }
   }, []);
 
-  // ── Fetch shops once we have location ─────────────────────────────────────
+  // ── Live location watch — dot follows the real position continuously ────────
   useEffect(() => {
-    getLocation().then(async (pos) => {
-      setIsFetchingShops(true);
-      try {
-        const found = await fetchNearbyShops(pos, 5000);
-        const withDist = found.map(s => ({
-          ...s,
-          distKm: haversineKm(pos, [s.lat, s.lon]),
-        })).sort((a, b) => a.distKm - b.distKm);
+    let cancelled = false;
+    let webWatchId = null;
+    let nativeWatchId = null;
 
-        setShops(withDist);
-        if (withDist.length > 0) {
-          setClosestShop(withDist[0]);
-          setSelectedShop(withDist[0]);
+    const onFix = (lat, lon) => {
+      if (cancelled) return;
+      const pos = [lat, lon];
+      setPosition(pos);
+      setIsLocating(false);
+      setLocationError(null); // a real fix arrived — clear any earlier fallback warning
+      if (isFollowingRef.current) setMapCenter(pos);
+    };
+
+    const applyFallbackLocation = () => {
+      if (cancelled) return;
+      setLocationError('Не вдалось визначити локацію');
+      setPosition(KYIV_FALLBACK);
+      setMapCenter(KYIV_FALLBACK);
+      setIsLocating(false);
+    };
+
+    (async () => {
+      if (Capacitor.isNativePlatform()) {
+        try {
+          const perm = await Geolocation.requestPermissions();
+          if (perm.location !== 'granted' && perm.coarseLocation !== 'granted') {
+            throw new Error('Дозвіл відхилено');
+          }
+          nativeWatchId = await Geolocation.watchPosition({ enableHighAccuracy: true }, (pos, err) => {
+            if (err) { console.warn('[Services] geolocation watch error:', err); return; }
+            if (pos) onFix(pos.coords.latitude, pos.coords.longitude);
+          });
+        } catch {
+          applyFallbackLocation();
         }
-      } catch {
-        setShops([]);
-      } finally {
-        setIsFetchingShops(false);
+      } else if (navigator.geolocation) {
+        webWatchId = navigator.geolocation.watchPosition(
+          p => onFix(p.coords.latitude, p.coords.longitude),
+          applyFallbackLocation,
+          { enableHighAccuracy: true }
+        );
+      } else {
+        applyFallbackLocation();
       }
-    });
+    })();
+
+    return () => {
+      cancelled = true;
+      if (webWatchId != null) navigator.geolocation.clearWatch(webWatchId);
+      if (nativeWatchId != null) Geolocation.clearWatch({ id: nativeWatchId }).catch(() => {});
+    };
   }, []);
 
-  // ── Recenter to user ───────────────────────────────────────────────────────
-  const recenter = useCallback(async () => {
-    if (Capacitor.isNativePlatform()) {
-      try {
-        const coords = await Geolocation.getCurrentPosition();
-        const p = [coords.coords.latitude, coords.coords.longitude];
-        setPosition(p);
-        setMapCenter(p);
-      } catch (_) {}
-    } else {
-      navigator.geolocation.getCurrentPosition(p => {
-        const pos = [p.coords.latitude, p.coords.longitude];
-        setPosition(pos);
-        setMapCenter(pos);
-      });
-    }
-  }, []);
+  // ── Fetch shops once, on the first position fix only — further fetches
+  // happen as the user pans the map (handleMapBoundsChange below) ─────────────
+  useEffect(() => {
+    if (!position || hasFetchedInitialRef.current) return;
+    hasFetchedInitialRef.current = true;
+    loadShops(position);
+  }, [position, loadShops]);
+
+  // ── Recenter to user — re-enables auto-follow too ────────────────────────────
+  const recenter = useCallback(() => {
+    setIsFollowing(true);
+    if (position) setMapCenter(position);
+  }, [position]);
 
   // ── Filter ────────────────────────────────────────────────────────────────
   const filtered = shops.filter(s =>
@@ -268,15 +313,16 @@ export default function ServicesPage() {
   // ── Handle Map Movement ───────────────────────────────────────────────────
   const handleMapBoundsChange = useCallback(async (newPos) => {
     if (isLocating || !newPos) return;
-    
+
     setIsFetchingShops(true);
+    setShopsError(null);
     try {
       const found = await fetchNearbyShops(newPos, 5000);
-      
+
       setShops(prevShops => {
         const shopMap = new Map();
         prevShops.forEach(s => shopMap.set(s.id, s));
-        
+
         found.forEach(s => {
           const refPos = position || newPos;
           shopMap.set(s.id, {
@@ -284,15 +330,23 @@ export default function ServicesPage() {
             distKm: haversineKm(refPos, [s.lat, s.lon])
           });
         });
-        
+
         return Array.from(shopMap.values()).sort((a, b) => a.distKm - b.distKm);
       });
     } catch (err) {
-      console.warn("Failed to fetch more shops:", err);
+      console.warn('[Services] Failed to fetch more shops:', err);
+      // Don't clobber existing shops on a pan-triggered refresh failure —
+      // only the initial load shows the hard error state.
     } finally {
       setIsFetchingShops(false);
     }
   }, [isLocating, position]);
+
+  const selectShop = (shop) => {
+    setSelectedShop(shop);
+    setMapCenter([shop.lat, shop.lon]);
+    setIsFollowing(false); // looking at a shop, not tracking the user anymore
+  };
 
   const isOpen = (hours) => {
     if (!hours) return null;
@@ -305,13 +359,13 @@ export default function ServicesPage() {
   return (
     // 1. Бронебійний Flex-контейнер на всю висоту екрану
     <div className="relative w-full bg-[#050505] overflow-hidden flex flex-col" style={{ height: '100dvh' }}>
-      
+
       {/* 2. Відступ для "чубчика" (Dynamic Island/Status Bar) */}
       <div style={{ height: 'var(--safe-top, env(safe-area-inset-top, 0px))' }} className="w-full shrink-0 bg-[#050505]"></div>
 
       {/* Головна обгортка для карти (flex-1 гарантує, що вона заповнить залишок екрану) */}
       <div className="relative flex-1 w-full z-0">
-        
+
         {/* MAP */}
         <div className="absolute inset-0 z-0">
           {position && (
@@ -323,7 +377,7 @@ export default function ServicesPage() {
             >
               {/* Примусовий ререндер розміру карти для мобільних */}
               <FixMapRender />
-              
+
               <TileLayer
                 attribution='© <a href="https://carto.com/attributions">CARTO</a>'
                 url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
@@ -338,12 +392,12 @@ export default function ServicesPage() {
                   key={shop.id}
                   position={[shop.lat, shop.lon]}
                   icon={makeShopIcon(shop.id === closestShop?.id, shop.isPartner)}
-                  eventHandlers={{ click: () => { setSelectedShop(shop); setMapCenter([shop.lat, shop.lon]); } }}
+                  eventHandlers={{ click: () => selectShop(shop) }}
                 />
               ))}
 
               <RecenterMap position={mapCenter} />
-              <MapEvents onBoundsChange={handleMapBoundsChange} />
+              <MapEvents onBoundsChange={handleMapBoundsChange} onUserDrag={() => setIsFollowing(false)} />
             </MapContainer>
           )}
 
@@ -373,11 +427,18 @@ export default function ServicesPage() {
             )}
           </div>
 
+          {/* Recenter button — highlighted blue while auto-following the live
+              GPS position, plain gray once the user has panned away */}
           <button
             onClick={recenter}
-            className="w-12 h-12 bg-[#111318]/90 backdrop-blur-md rounded-2xl border border-gray-800 flex items-center justify-center shadow-lg active:scale-95 transition-transform"
+            aria-label="Показати моє місцезнаходження"
+            className={`w-12 h-12 backdrop-blur-md rounded-2xl border flex items-center justify-center shadow-lg active:scale-95 transition-all ${
+              isFollowing
+                ? 'bg-blue-600/90 border-blue-500'
+                : 'bg-[#111318]/90 border-gray-800'
+            }`}
           >
-            <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className={`w-5 h-5 ${isFollowing ? 'text-white' : 'text-blue-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
                 d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -385,16 +446,25 @@ export default function ServicesPage() {
           </button>
         </div>
 
-        {/* CLOSEST BADGE */}
-        {closestShop && selectedShop?.id === closestShop.id && (
-          <div className="absolute top-24 left-5 z-[1000]">
+        {/* Stacked banners below the search bar — a flex column instead of
+            independently-hardcoded top offsets so they never overlap
+            regardless of which combination is showing */}
+        <div className="absolute top-20 left-5 right-5 z-[1000] flex flex-col items-start gap-2">
+          {locationError && (
+            <div className="w-full bg-amber-950/80 border border-amber-800/40 backdrop-blur-md px-3 py-2 rounded-xl flex items-center gap-2">
+              <span className="text-amber-400 text-xs flex-shrink-0">⚠</span>
+              <span className="text-[10px] text-amber-300">{locationError} — показано Київ як приклад</span>
+            </div>
+          )}
+
+          {closestShop && selectedShop?.id === closestShop.id && (
             <div className="flex items-center gap-1.5 bg-blue-600/20 border border-blue-500/30 px-3 py-1.5 rounded-full backdrop-blur-sm">
               <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
               <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Найближче</span>
               <span className="text-[10px] text-blue-300">{fmtDist(closestShop.distKm)}</span>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* BOTTOM SHEET */}
         {selectedShop && (
@@ -405,7 +475,7 @@ export default function ServicesPage() {
                   {filtered.slice(0, 8).map(s => (
                     <button
                       key={s.id}
-                      onClick={() => { setSelectedShop(s); setMapCenter([s.lat, s.lon]); }}
+                      onClick={() => selectShop(s)}
                       className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[10px] font-bold transition-all border
                         ${selectedShop.id === s.id
                           ? 'bg-blue-600 text-white border-blue-500 shadow-md'
@@ -487,13 +557,30 @@ export default function ServicesPage() {
           </div>
         )}
 
-        {/* Empty state */}
-        {!isFetchingShops && !isLocating && shops.length === 0 && (
+        {/* Error state — a failed/timed-out request, distinct from "genuinely
+            nothing nearby" so users aren't left thinking there's just no СТО */}
+        {shopsError && !isFetchingShops && shops.length === 0 && (
+          <div className="absolute bottom-28 left-5 right-5 z-[1000]">
+            <div className="bg-[#111318]/95 border border-red-900/40 rounded-2xl p-5 text-center">
+              <p className="text-red-400 text-xs font-bold mb-1">Не вдалося завантажити СТО</p>
+              <p className="text-gray-500 text-[10px] mb-3">Проблема з мережею або сервісом карт. Спробуйте ще раз.</p>
+              <button
+                onClick={() => position && loadShops(position)}
+                className="text-blue-400 text-xs font-bold underline"
+              >
+                Спробувати ще раз
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Empty state — request succeeded, genuinely nothing nearby */}
+        {!shopsError && !isFetchingShops && !isLocating && shops.length === 0 && (
           <div className="absolute bottom-28 left-5 right-5 z-[1000]">
             <div className="bg-[#111318]/95 border border-gray-800 rounded-2xl p-5 text-center">
               <p className="text-gray-500 text-xs">СТО не знайдено в радіусі 5 км</p>
               <button
-                onClick={() => position && fetchNearbyShops(position, 15000).then(s => setShops(s))}
+                onClick={() => position && loadShops(position, 15000)}
                 className="mt-3 text-blue-400 text-xs underline"
               >
                 Розширити пошук до 15 км

@@ -2,6 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../services/api.js';
 import { toast } from '../components/ui/Toast.jsx';
+import { DragyStyleChart } from '../components/perf/DragyStyleChart.jsx';
+import PerfRunDetailModal from '../components/perf/PerfRunDetailModal.jsx';
+import { formatPerfTime, getMilestoneTime } from '../components/perf/perfHelpers.js';
 
 const FILTER_LABELS = {
   '0-50':    '0-50 км/год',
@@ -14,49 +17,13 @@ const FILTER_LABELS = {
   '1/2mi':   '1/2 милі',
 };
 
-const formatTime = (ms) => (ms / 1000).toFixed(2) + ' с';
-
-// ── Small inline SVG speed-vs-time graph — no need for a full chart lib for a
-// single-series [{t,v}] array like this ────────────────────────────────────
-function SpeedGraph({ telemetry }) {
-  if (!telemetry || telemetry.length < 2) {
-    return <div className="h-32 flex items-center justify-center text-[10px] text-gray-600">Немає даних телеметрії</div>;
-  }
-
-  const W = 300, H = 110, PAD = 8;
-  const ts = telemetry.map(p => p.t);
-  const vs = telemetry.map(p => p.v);
-  const tMin = Math.min(...ts), tMax = Math.max(...ts) || 1;
-  const vMin = 0, vMax = Math.max(...vs) || 1;
-
-  const x = (t) => PAD + ((t - tMin) / (tMax - tMin || 1)) * (W - PAD * 2);
-  const y = (v) => H - PAD - ((v - vMin) / (vMax - vMin || 1)) * (H - PAD * 2);
-
-  const points = telemetry.map(p => `${x(p.t)},${y(p.v)}`).join(' ');
-  const areaPoints = `${x(ts[0])},${H - PAD} ${points} ${x(ts[ts.length - 1])},${H - PAD}`;
-
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-32">
-      <polygon points={areaPoints} fill="url(#speedGradient)" opacity="0.25" />
-      <polyline points={points} fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <defs>
-        <linearGradient id="speedGradient" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#3b82f6" />
-          <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <text x={PAD} y={H - 2} className="fill-gray-500" style={{ font: '9px sans-serif' }}>0 км/год</text>
-      <text x={W - PAD} y={H - 2} textAnchor="end" className="fill-gray-500" style={{ font: '9px sans-serif' }}>{Math.round(vMax)} км/год</text>
-    </svg>
-  );
-}
-
 export default function PublicProfilePage() {
   const { id } = useParams();
   const navigate = useNavigate();
 
   const [data, setData] = useState(null); // null = loading
   const [error, setError] = useState(null);
+  const [selectedRecord, setSelectedRecord] = useState(null);
 
   useEffect(() => {
     api.getPublicProfile(id)
@@ -68,7 +35,7 @@ export default function PublicProfilePage() {
   }, [id]);
 
   return (
-    <div className="min-h-screen bg-[#050505] pb-10">
+    <div className="min-h-[100dvh] bg-[#050505] pb-10">
       <div className="flex items-center justify-between px-5 pt-6 mb-6">
         <button
           onClick={() => navigate(-1)}
@@ -116,23 +83,57 @@ export default function PublicProfilePage() {
               <div className="text-center py-8 text-gray-500 text-xs">Ще немає збережених заїздів.</div>
             ) : (
               <div className="flex flex-col gap-4">
-                {data.records.map((r) => (
-                  <div key={r.filter_key} className="bg-[#111318] rounded-2xl border border-gray-800 p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs font-bold text-gray-300">{FILTER_LABELS[r.filter_key] || r.filter_key}</span>
-                      <span className="text-sm font-black text-blue-400">{formatTime(r.time_ms)}</span>
+                {data.records.map((r) => {
+                  const telemetry = r.telemetry || [];
+                  const hasDetailedTelemetry = telemetry.length > 1 && telemetry[0]?.speed !== undefined;
+                  const displayTime = getMilestoneTime(telemetry, r.filter_key) || r.time_ms;
+
+                  return (
+                    <div key={r.filter_key} className="bg-[#111318] rounded-2xl border border-gray-800 overflow-hidden">
+                      <button
+                        onClick={() => hasDetailedTelemetry && setSelectedRecord(r)}
+                        className="w-full text-left px-4 pt-4 pb-2 flex justify-between items-start"
+                      >
+                        <div>
+                          <span className="text-xs font-bold text-gray-300">{FILTER_LABELS[r.filter_key] || r.filter_key}</span>
+                          <div className="text-[10px] text-gray-600 mt-0.5">
+                            {new Date(r.recorded_at).toLocaleString('uk-UA')}
+                            {r.distance_m ? ` · ${r.distance_m.toFixed(0)} м` : ''}
+                          </div>
+                        </div>
+                        <span className="text-sm font-black text-blue-400 tabular-nums">{formatPerfTime(displayTime)}</span>
+                      </button>
+
+                      {hasDetailedTelemetry ? (
+                        <div className="px-2 pb-2">
+                          <DragyStyleChart runData={telemetry} />
+                          <button
+                            onClick={() => setSelectedRecord(r)}
+                            className="w-full text-center text-[10px] font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-xl py-2 mt-1"
+                          >
+                            Детальніше →
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="px-4 pb-4 text-[10px] text-gray-600">Немає детальної телеметрії для цього заїзду.</div>
+                      )}
                     </div>
-                    <SpeedGraph telemetry={r.telemetry} />
-                    <div className="text-[10px] text-gray-600 mt-1">
-                      {r.distance_m ? `${r.distance_m.toFixed(0)} м · ` : ''}
-                      {new Date(r.recorded_at).toLocaleDateString('uk-UA')}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
         </div>
+      )}
+
+      {selectedRecord && (
+        <PerfRunDetailModal
+          timestamp={selectedRecord.recorded_at}
+          timeMs={selectedRecord.time_ms}
+          telemetry={selectedRecord.telemetry}
+          filterKey={selectedRecord.filter_key}
+          onClose={() => setSelectedRecord(null)}
+        />
       )}
     </div>
   );

@@ -4,6 +4,7 @@ import { useTelemetry } from '../context/TelemetryContext.jsx';
 import { api } from '../services/api.js';
 import { compressImage } from '../utils/compressImage.js';
 import { toast } from '../components/ui/Toast.jsx';
+import { renderMessageContent } from '../components/chat/formatMessage.jsx';
 
 const DEFAULT_PHOTO_PROMPT = 'Проаналізуй це фото автомобіля — опиши пошкодження, стан деталей та можливі проблеми.';
 
@@ -103,7 +104,7 @@ export default function ScanPage() {
     // AppLayout reserves pb-24 (6rem) below <main> for the fixed BottomNav —
     // fill exactly that visible slot so the input bar stays pinned above the
     // nav instead of drifting below the fold in a taller-than-viewport page.
-    <div className="h-[calc(100vh-6rem)] flex flex-col">
+    <div className="h-[calc(100dvh-6rem)] flex flex-col">
       {/* HEADER */}
       <div className="flex items-center justify-between px-5 pt-6 pb-3">
         <div>
@@ -144,9 +145,9 @@ export default function ScanPage() {
                 }`}>
                   {imgSrc && <img src={imgSrc} alt="" className="w-full max-h-64 object-cover" />}
                   {showText && (
-                    <p className={`px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${isUser ? 'text-white' : 'text-gray-200'}`}>
-                      {m.content}
-                    </p>
+                    <div className={`px-4 py-2.5 text-sm leading-relaxed ${isUser ? 'text-white' : 'text-gray-200'}`}>
+                      {renderMessageContent(m.content)}
+                    </div>
                   )}
                 </div>
               </div>
