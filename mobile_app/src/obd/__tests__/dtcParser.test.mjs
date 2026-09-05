@@ -149,5 +149,36 @@ check('a genuine 5-char code (P0301) passes structural validation', isStructural
 check('a too-short garbage string does not pass', !isStructurallyValidDtc('P030'));
 
 // ─────────────────────────────────────────────────────────────────────────────
+console.log('\n[4] Third-party reference vectors — not our own fixtures\n');
+
+// Mode 03, 4 DTCs spanning two ISO-TP CAN frames — taken from python-OBD's own
+// protocol test suite (test_protocol_can.py, test_multi_line_mode_03): raw
+// frames "7E8 10 20 43 04 00 01 02 03" + "7E8 21 04 05 06 07 08 09 0A" reassemble
+// to correct_data [0x43,0x04,0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07]. python-OBD
+// does its own ISO-TP reassembly (raw pass-through); our app relies on the ELM327
+// chip's own CAF1 reassembly, so the input here is that same reassembled payload —
+// this checks OUR parser handles a real multi-DTC Mode 03 response, which none of
+// the fixtures above (single or dual DTC) exercised.
+const pyObdMode03 = '43' + '04' + '00010203' + '04050607';
+const pyObdResult  = decodeOneResponse('03', dtc, pyObdMode03);
+const pyObdCodes   = (pyObdResult || []).filter(isStructurallyValidDtc);
+check('python-OBD reference multi-frame Mode 03 payload: all 4 DTCs extracted, matching the count byte',
+  pyObdCodes.length === 4 &&
+  ['P0001', 'P0203', 'P0405', 'P0607'].every(c => pyObdCodes.includes(c)),
+  `got [${pyObdCodes.join(', ')}]`);
+
+// UDS 0x19 0x02 (reportDTCByStatusMask) response shaped per ISO 14229-1's
+// documented format (SID 0x59, sub-function echo 0x02, DTCStatusAvailabilityMask,
+// then repeated 4-byte records: 3-byte DTC + 1-byte status) — encoding the two
+// codes Alex/Тимур said should actually be on this car: P0128 (thermostat) and
+// P0562 (system voltage low, i.e. the battery/charging complaint).
+const udsThermostatBattery = '5902' + 'FF' + '01280008' + '05620009';
+const udsResult = decodeOneResponse('190209', dtc_uds, udsThermostatBattery);
+const udsCodes  = (udsResult || []).filter(item => isStructurallyValidDtc(item.base)).map(item => item.base).sort();
+check('ISO-14229-shaped UDS response correctly yields P0128 (thermostat) + P0562 (voltage)',
+  JSON.stringify(udsCodes) === JSON.stringify(['P0128', 'P0562']),
+  `got [${udsCodes.join(', ')}]`);
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);

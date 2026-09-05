@@ -10,6 +10,7 @@ import { api } from '../services/api.js';
 import { DragyStyleChart } from '../components/perf/DragyStyleChart.jsx';
 import PerfRunDetailModal from '../components/perf/PerfRunDetailModal.jsx';
 import { formatPerfTime, getMilestoneTime, getMilestoneDistance } from '../components/perf/perfHelpers.js';
+import { lphToL100km } from '../obd/fuelRate.js';
 import HideIcon from '../assets/hide.svg';
 import ShowIcon from '../assets/show.svg';
 import SpeedIcon from '../assets/speedometer.svg';
@@ -829,9 +830,25 @@ export default function DashboardPage() {
     const isWaitingData = telemetry.isConnected && metricData.value === '--';
 
     const speedVal = metricData.value !== '--' ? Number(metricData.value) : 0;
-    const normalizedSpeed = Math.min(Math.max(speedVal, 0), 220); 
+    const normalizedSpeed = Math.min(Math.max(speedVal, 0), 220);
     const needleAngle = -135 + ((normalizedSpeed / 220) * 270);
     const dynamicGlow = `0 0 ${15 + (speedVal / 3)}px rgba(59,130,246,${0.1 + (speedVal / 250)})`;
+
+    // FUEL_RATE comes from getSmartFuelRate() in л/год (a rate, well-defined
+    // even at idle — kept as-is in history/graphs). For the tile itself, show
+    // л/100км while actually moving, matching how real trip computers work.
+    // Below a minimal speed the conversion is meaningless (fuel burns while
+    // stationary but km/h is ~0), so lphToL100km returns null and we keep
+    // showing л/год at idle instead of a nonsensical or infinite л/100км.
+    let displayValue = metricData.value;
+    let displayUnit  = metricData.unit;
+    if (item.id === 'FUEL_RATE' && metricData.value !== '--') {
+      const l100 = lphToL100km(metricData.value, telemetry.speed);
+      if (l100 != null) {
+        displayValue = l100;
+        displayUnit  = 'л/100км';
+      }
+    }
 
     return (
       <div key={item.id} draggable={isEditMode} onDragStart={(e) => (dragItem.current = index)} onDragEnter={(e) => (dragOverItem.current = index)} onDragEnd={handleSort} onDragOver={(e) => e.preventDefault()}
@@ -967,9 +984,9 @@ export default function DashboardPage() {
                  <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
                </div>
             ) : (
-               <span className={`font-bold transition-all duration-300 tabular-nums ${item.size === 'col-span-1' ? 'text-2xl' : 'text-4xl'} ${metricData.value === '--' ? 'text-gray-600' : 'text-white'}`}>
-                 {metricData.value}
-                 <span className="text-[10px] text-gray-500 ml-1 font-medium">{metricData.unit}</span>
+               <span className={`font-bold transition-all duration-300 tabular-nums ${item.size === 'col-span-1' ? 'text-2xl' : 'text-4xl'} ${displayValue === '--' ? 'text-gray-600' : 'text-white'}`}>
+                 {displayValue}
+                 <span className="text-[10px] text-gray-500 ml-1 font-medium">{displayUnit}</span>
                </span>
             )}
             <span className="text-[10px] text-gray-500/80 font-bold mt-1 text-center leading-tight uppercase tracking-wider">{cmdInfo?.desc || item.id}</span>
@@ -1071,7 +1088,7 @@ export default function DashboardPage() {
         </h3>
         <div className="grid grid-cols-2 gap-3">
           <MiniGraph data={get24hData(telemetry.history.speed)} color="#60a5fa" label="ШВИДКІСТЬ" unit="км/год" onClick={() => setSelectedGraph({ id: 'SPEED', label: 'Швидкість', color: '#60a5fa', unit: 'км/год' })} />
-          <MiniGraph data={get24hData(telemetry.history.fuel)} color="#f472b6" label="ВИТРАТА" unit="л/год" onClick={() => setSelectedGraph({ id: 'FUEL_RATE', label: 'Витрата палива', color: '#f472b6', unit: 'л/год' })} />
+          <MiniGraph data={get24hData(telemetry.history.fuel)} color="#f472b6" label="ВИТРАТА, Л/ГОД" unit="л/год" onClick={() => setSelectedGraph({ id: 'FUEL_RATE', label: 'Витрата палива (л/год)', color: '#f472b6', unit: 'л/год' })} />
           <MiniGraph data={get24hData(telemetry.history.rpm)} color="#a78bfa" label="ОБЕРТИ" unit="rpm" onClick={() => setSelectedGraph({ id: 'RPM', label: 'Оберти', color: '#a78bfa', unit: 'rpm' })} />
           <MiniGraph data={get24hData(telemetry.history.temp)} color="#34d399" label="ТЕМПЕРАТУРА" unit="°C" onClick={() => setSelectedGraph({ id: 'COOLANT_TEMP', label: 'Температура', color: '#34d399', unit: '°C' })} />
         </div>
@@ -1281,7 +1298,7 @@ export default function DashboardPage() {
 
       {showAnalysisModal && (
         <div className="fixed inset-0 z-[110] bg-black/80 backdrop-blur-sm flex items-end md:items-center justify-center animate-in fade-in duration-200 pt-safe">
-          <div className="bg-[#0b0c10] w-full md:w-3/4 max-w-2xl rounded-t-3xl md:rounded-3xl border border-gray-800 shadow-2xl h-[85vh] md:h-[70vh] flex flex-col animate-in slide-in-from-bottom-10">
+          <div className="bg-[#0b0c10] w-full md:w-3/4 max-w-2xl rounded-t-3xl md:rounded-3xl border border-gray-800 shadow-2xl h-[85dvh] md:h-[70dvh] flex flex-col animate-in slide-in-from-bottom-10">
             <div className="p-5 border-b border-gray-800 flex flex-col gap-4 bg-[#111318] rounded-t-3xl">
               <div className="flex justify-between items-center">
                 <h2 className="font-bold text-sm text-blue-400 uppercase tracking-wider flex items-center gap-2">
@@ -1301,7 +1318,7 @@ export default function DashboardPage() {
               )}
             </div>
             
-            <div className="p-5 flex-1 overflow-y-auto">
+            <div className="p-5 flex-1 overflow-y-auto overscroll-contain">
               {isAnalyzing ? (
                 <div className="flex flex-col items-center justify-center h-full">
                   <div className="relative w-24 h-24 mb-6 flex items-center justify-center">
@@ -1354,14 +1371,14 @@ export default function DashboardPage() {
 
       {showErrorHistoryModal && (
          <div className="fixed inset-0 z-[115] bg-black/80 backdrop-blur-md flex items-end md:items-center justify-center animate-in fade-in p-4 pt-safe">
-           <div className="bg-[#0b0c10] w-full max-w-2xl rounded-3xl border border-gray-800 shadow-2xl h-[70vh] flex flex-col animate-in zoom-in-95 overflow-hidden">
+           <div className="bg-[#0b0c10] w-full max-w-2xl rounded-3xl border border-gray-800 shadow-2xl h-[70dvh] flex flex-col animate-in zoom-in-95 overflow-hidden">
              <div className="p-5 border-b border-gray-800 flex justify-between items-center bg-[#111318]">
                <h2 className="text-sm font-bold text-white uppercase tracking-widest">Історія помилок (БД)</h2>
                <button onClick={() => setShowErrorHistoryModal(false)} className="text-gray-400 bg-gray-900 p-2 rounded-full hover:bg-gray-800 transition-colors">
                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                </button>
              </div>
-             <div className="flex-1 p-5 overflow-y-auto space-y-4">
+             <div className="flex-1 p-5 overflow-y-auto overscroll-contain space-y-4">
                {errorHistory.length === 0 ? (
                  <div className="text-center py-10 text-gray-500 text-xs">Історія пуста.</div>
                ) : (
@@ -1409,7 +1426,7 @@ export default function DashboardPage() {
 
       {selectedGraph && (
         <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-200 p-4 pt-safe">
-          <div className="bg-[#0b0c10] w-full max-w-3xl rounded-3xl border border-gray-800 shadow-2xl h-[75vh] flex flex-col animate-in zoom-in-95 overflow-hidden">
+          <div className="bg-[#0b0c10] w-full max-w-3xl rounded-3xl border border-gray-800 shadow-2xl h-[75dvh] flex flex-col animate-in zoom-in-95 overflow-hidden">
             <div className="p-5 border-b border-gray-800 flex justify-between items-center bg-[#111318]">
               <h2 className="text-xl font-black text-white flex items-center gap-3">
                 <div className="w-3 h-3 rounded-full shadow-lg" style={{ backgroundColor: selectedGraph.color, boxShadow: `0 0 10px ${selectedGraph.color}` }}></div>
@@ -1419,7 +1436,7 @@ export default function DashboardPage() {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
               </button>
             </div>
-            <div className="flex-1 p-5 bg-[#0b0c10] flex flex-col">
+            <div className="flex-1 p-5 bg-[#0b0c10] flex flex-col overflow-y-auto overscroll-contain">
               {renderDetailedGraph()}
             </div>
           </div>

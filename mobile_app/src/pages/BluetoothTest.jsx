@@ -268,7 +268,7 @@ export default function BluetoothTest() {
       </div>
 
       {/* Log console */}
-      <div className="bg-black p-4 rounded-xl border border-gray-800 h-48 overflow-y-auto font-mono text-[10px] flex flex-col-reverse">
+      <div className="bg-black p-4 rounded-xl border border-gray-800 h-48 overflow-y-auto overscroll-contain font-mono text-[10px] flex flex-col-reverse">
         <div>
           {logs.map((line, i) => (
             <div key={i} className={`mb-1 opacity-80 ${line.includes('ERROR') ? 'text-red-500' : line.includes('WARN') ? 'text-yellow-500' : 'text-green-500'}`}>

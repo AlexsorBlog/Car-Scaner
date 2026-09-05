@@ -44,7 +44,7 @@ export default function PerfRunDetailModal({ timestamp, timeMs, telemetry, filte
             </button>
           </div>
         </div>
-        <div className="flex-1 p-5 overflow-y-auto space-y-6">
+        <div className="flex-1 p-5 overflow-y-auto overscroll-contain space-y-6">
           {runData.length === 0 ? (
             <div className="text-gray-500 text-sm">Немає збережених даних телеметрії.</div>
           ) : (() => {

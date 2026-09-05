@@ -21,6 +21,12 @@ import {
   parseLegacyModeDtc,
   parseUdsKwpDtc,
 } from './dtcParser.js';
+import {
+  MERCEDES_UDS_FUEL_CMDS,
+  decodeUdsFuelReply,
+  calcMafFuelRate,
+  calcHeuristicFuelRate,
+} from './fuelRate.js';
 
 // ── Server config — swap URL when server is ready ─────────────────────────────
 // When SERVER_ENABLED = true the app will route OBD queries through your
@@ -182,37 +188,13 @@ class OBDManager {
     }
 
     // ── Step 3: UDS 22 service — Mercedes specific PIDs ─────────────────────
-    // Mercedes W212/W205/W213 commonly use these UDS ReadDataByIdentifier PIDs.
-    // 22F40F = fuel consumption (l/h), 22F415 = instant consumption variant,
-    // 222110 / 2221FD = alternate addresses seen on some ECU variants.
-    for (const udsCmd of [
-      { command: '22F40F', scale: 0.01,  desc: 'UDS Fuel F40F' },
-      { command: '22F415', scale: 0.01,  desc: 'UDS Fuel F415' },
-      { command: '222110', scale: 0.01,  desc: 'UDS Fuel 2110' },
-      { command: '2221FD', scale: 0.01,  desc: 'UDS Fuel 21FD' },
-    ]) {
+    for (const udsCmd of MERCEDES_UDS_FUEL_CMDS) {
       try {
         const raw = await this._scanner.sendCommand(udsCmd.command);
-        if (raw && !raw.includes('NO DATA') && !raw.includes('ERROR') && !raw.includes('?')) {
-          const clean = raw.replace(/[\s\r\n:0-9A-F]{1}:/g, '').replace(/[\s\r\n]/g, '').toUpperCase();
-          // UDS 22 reply prefix is 62 + the 2-byte DID, e.g. 22F40F → 62F40F
-          const did        = udsCmd.command.substring(2).toUpperCase();
-          const replyPfx   = '62' + did;
-          const prefixIdx  = clean.indexOf(replyPfx);
-          if (prefixIdx !== -1) {
-            // Data starts after the 6-char prefix (62 + 2-byte DID)
-            const hexData = clean.substring(prefixIdx + 6, prefixIdx + 10);
-            if (hexData.length === 4) {
-              const raw_val = parseInt(hexData, 16);
-              if (!isNaN(raw_val) && raw_val > 0 && raw_val < 0xFFFE) {
-                const lph = (raw_val * (udsCmd.scale || 0.01)).toFixed(2);
-                if (parseFloat(lph) > 0 && parseFloat(lph) < 100) {
-                  saveRawLog('FUEL_UDS', udsCmd.command, `${lph} л/год`);
-                  return { value: lph, unit: 'л/год', raw: hexData, name: 'FUEL_RATE', desc: 'Витрата палива' };
-                }
-              }
-            }
-          }
+        const lph = decodeUdsFuelReply(raw, udsCmd.command, udsCmd.scale);
+        if (lph != null) {
+          saveRawLog('FUEL_UDS', udsCmd.command, `${lph} л/год`);
+          return { value: lph, unit: 'л/год', raw, name: 'FUEL_RATE', desc: 'Витрата палива' };
         }
       } catch (_) {}
     }
@@ -225,8 +207,6 @@ class OBDManager {
     };
     const rMaf = await this.query(cmdMaf);
     if (_ok(rMaf)) {
-      const mafGs = parseFloat(rMaf.value);
-
       // Try to get fuel type for accurate AFR
       const cmdFuelType = this.commands['FUEL_TYPE'] || {
         command: '0151', bytes: 1,
@@ -236,33 +216,25 @@ class OBDManager {
       const rFuelType = await this.query(cmdFuelType);
       const fuelId = (_ok(rFuelType) && !isNaN(rFuelType.value)) ? parseInt(rFuelType.value, 10) : 1;
 
-      const FUEL_PROPS = {
-        1:  { afr: 14.7, density: 820 },  // Petrol
-        4:  { afr: 14.5, density: 850 },  // Diesel
-        8:  { afr: 15.5, density: 540 },  // LPG
-        9:  { afr: 17.2, density: 128 },  // CNG
-        23: { afr: 9.0,  density: 789 },  // Ethanol
-      };
-      const fp  = FUEL_PROPS[fuelId] || FUEL_PROPS[1];
-      const lph = ((mafGs * 3600) / (fp.afr * fp.density)).toFixed(1);
-      return { value: lph, unit: 'л/год', raw: 'MAF_CALC', name: 'FUEL_RATE', desc: 'Витрата палива' };
+      const lph = calcMafFuelRate(parseFloat(rMaf.value), fuelId);
+      if (lph != null) {
+        return { value: lph, unit: 'л/год', raw: 'MAF_CALC', name: 'FUEL_RATE', desc: 'Витрата палива' };
+      }
     }
 
     // ── Step 5: Throttle + RPM + displacement heuristic (last resort) ────────
     // Very rough but better than '--' for engines that support nothing else
     try {
-      const rRpm = await this.query(this.commands['RPM']);
-      const rTps = await this.query(this.commands['THROTTLE_POS']);
+      const rRpm  = await this.query(this.commands['RPM']);
+      const rTps  = await this.query(this.commands['THROTTLE_POS']);
       const rLoad = await this.query(this.commands['ENGINE_LOAD']);
       if (_ok(rRpm) && _ok(rTps)) {
-        const rpm   = parseFloat(rRpm.value);
-        const tps   = parseFloat(rTps.value) / 100;
-        const load  = _ok(rLoad) ? parseFloat(rLoad.value) / 100 : tps;
-        // Assume 2.0L petrol if unknown — rough L/h = displacement * RPM * load * BSFC
-        const DISPLACEMENT_L = 2.0;
-        const BSFC = 0.00028; // brake-specific fuel consumption constant (rough)
-        const lph  = (DISPLACEMENT_L * rpm * load * BSFC).toFixed(1);
-        if (parseFloat(lph) > 0 && parseFloat(lph) < 80) {
+        const lph = calcHeuristicFuelRate(
+          parseFloat(rRpm.value),
+          parseFloat(rTps.value),
+          _ok(rLoad) ? parseFloat(rLoad.value) : null
+        );
+        if (lph != null) {
           return { value: lph, unit: 'л/год', raw: 'HEURISTIC', name: 'FUEL_RATE', desc: 'Витрата палива (розрах.)' };
         }
       }
@@ -278,17 +250,18 @@ class OBDManager {
     const usedVariants = [];
 
     // ── Pre-scan setup: increase ELM timeout and enable multi-frame ───────────
-    // Mercedes (and many modern cars) need longer response time for DTC queries
+    // Mercedes (and many modern cars) need longer response time for DTC queries.
+    // CAF (CAN auto-formatting) is deliberately NOT touched here — it's toggled
+    // per method group below, since UDS and legacy/KWP need opposite settings.
     try {
       await this._scanner.sendCommand('ATAT2');   // adaptive timing mode 2 (max wait)
       await this._scanner.sendCommand('ATST64');  // timeout = 100 * 4ms = 400ms
       await this._scanner.sendCommand('ATAL');    // allow long messages
-      await this._scanner.sendCommand('ATCAF0');  // disable CAN auto-formatting so we get raw frames
     } catch (_) {}
 
-    const methods = [
-      // UDS — reliable subset only (1902FF and 19020C removed — cause garbage)
-      // IMPORTANT: names use 'Mode UDS' prefix so TelemetryContext variant checks work
+    // UDS — reliable subset only (1902FF and 19020C removed — cause garbage)
+    // IMPORTANT: names use 'Mode UDS' prefix so TelemetryContext variant checks work
+    const udsMethods = [
       { cmd: '190209', dec: decoders.dtc_uds, isUds: true,  name: 'Mode UDS 09' },
       { cmd: '190208', dec: decoders.dtc_uds, isUds: true,  name: 'Mode UDS 08' },
       { cmd: '190201', dec: decoders.dtc_uds, isUds: true,  name: 'Mode UDS 01' },
@@ -297,52 +270,71 @@ class OBDManager {
       // is a single status bit, not the full mask, so it doesn't trigger the
       // memory-dump-scale responses those caused on other cars.
       { cmd: '190204', dec: decoders.dtc_uds, isUds: true,  name: 'Mode UDS 04' },
-      // OBD-II standard modes
+    ];
+    // OBD-II standard modes + KWP2000 — their decoders (decoders.dtc /
+    // decoders.dtc_kwp) look for the standard ELM-formatted positive-response
+    // prefix ("43"/"47"/"58"), which only exists when the adapter builds the
+    // ISO-TP framing for us — i.e. under CAF1, not CAF0.
+    const legacyMethods = [
       { cmd: '03',       dec: decoders.dtc,     isUds: false, name: 'Mode 03' },
       { cmd: '07',       dec: decoders.dtc,     isUds: false, name: 'Mode 07' },
       { cmd: '0A',       dec: decoders.dtc,     isUds: false, name: 'Mode 0A' },
-      // KWP2000
       { cmd: '18000000', dec: decoders.dtc_kwp, isUds: false, name: 'KWP 00' },
       { cmd: '1802FF00', dec: decoders.dtc_kwp, isUds: false, name: 'KWP FF' },
     ];
 
-    for (const method of methods) {
-      const result = await this._executeRawDTC(method.cmd, method.dec);
-      if (!result || result.length === 0) continue;
+    const runMethods = async (methods) => {
+      for (const method of methods) {
+        const result = await this._executeRawDTC(method.cmd, method.dec);
+        if (!result || result.length === 0) continue;
 
-      let addedNew = false;
+        let addedNew = false;
 
-      for (const item of result) {
-        const baseCode = method.isUds ? item.base : item;
+        for (const item of result) {
+          const baseCode = method.isUds ? item.base : item;
 
-        // ── Ghost / padding / structural filter ──────────────────────────────
-        if (!isStructurallyValidDtc(baseCode)) continue;
+          // ── Ghost / padding / structural filter ──────────────────────────
+          if (!isStructurallyValidDtc(baseCode)) continue;
 
-        // For non-UDS: only accept dictionary-known codes
-        // (UDS statusByte gives enough confidence even for unlisted codes)
-        const isKnown = !!dtcDictionary[baseCode];
-        if (!method.isUds && !isKnown) {
-          console.log(`[DTC] Dropping non-dictionary code from ${method.name}: ${baseCode}`);
-          continue;
+          // For non-UDS: only accept dictionary-known codes
+          // (UDS statusByte gives enough confidence even for unlisted codes)
+          const isKnown = !!dtcDictionary[baseCode];
+          if (!method.isUds && !isKnown) {
+            console.log(`[DTC] Dropping non-dictionary code from ${method.name}: ${baseCode}`);
+            continue;
+          }
+
+          // Keep first occurrence, or promote if newly known
+          if (!allCodes.has(baseCode) || (isKnown && !allCodes.get(baseCode).isKnown)) {
+            allCodes.set(baseCode, {
+              code:       method.isUds ? item.full : item,
+              base:       baseCode,
+              isKnown,
+              variant:    method.name,
+              statusByte: method.isUds ? (item.statusByte ?? null) : null,
+            });
+            addedNew = true;
+          }
         }
 
-        // Keep first occurrence, or promote if newly known
-        if (!allCodes.has(baseCode) || (isKnown && !allCodes.get(baseCode).isKnown)) {
-          allCodes.set(baseCode, {
-            code:       method.isUds ? item.full : item,
-            base:       baseCode,
-            isKnown,
-            variant:    method.name,
-            statusByte: method.isUds ? (item.statusByte ?? null) : null,
-          });
-          addedNew = true;
+        if (addedNew && !usedVariants.includes(method.name)) {
+          usedVariants.push(method.name);
         }
       }
+    };
 
-      if (addedNew && !usedVariants.includes(method.name)) {
-        usedVariants.push(method.name);
-      }
-    }
+    // Raw (unformatted) CAN frames so multi-ECU 5902 blocks survive intact —
+    // see decoders.js header comment. Confirmed on a real Mercedes that running
+    // Mode 03/07/0A + KWP under this same CAF0 setting broke them: Mode 03 and
+    // Mode 07 (two different commands) came back byte-for-byte identical
+    // ("037F0011AAAAAAAA"), and the KWP queries came back as bare flow-control
+    // noise ("300800AAAAAAAAAA") — the signature of a malformed/unparseable
+    // request, not a real per-command ECU rejection.
+    try { await this._scanner.sendCommand('ATCAF0'); } catch (_) {}
+    await runMethods(udsMethods);
+
+    try { await this._scanner.sendCommand('ATCAF1'); } catch (_) {}
+    await runMethods(legacyMethods);
 
     // ── Post-scan: restore normal ELM timing for live polling ─────────────────
     try {

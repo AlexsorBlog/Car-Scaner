@@ -106,6 +106,30 @@ html, body {
 .pt-safe { padding-top: var(--safe-top); }
 .pb-safe { padding-bottom: var(--safe-bottom); }
 
+/* App-wide: this should feel like a native app, not a browser tab — hide the
+   visible scrollbar track on every scrollable element (the page itself, every
+   modal's internal scroll area, every horizontal chip row) while keeping
+   touch/wheel scrolling fully functional. Scrolling still works exactly the
+   same; only the visible track/thumb is gone. */
+* {
+  scrollbar-width: none;   /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge/IE */
+}
+*::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/WebKit — covers iOS/Android WebViews too */
+}
+
+/* Kept for the two call sites that already reference it explicitly
+   (ServicesPage.jsx, DashboardPage.jsx horizontal chip rows) — same effect
+   as the global rule above, just named for clarity at those call sites. */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 #center {
   display: flex;
   flex-direction: column;

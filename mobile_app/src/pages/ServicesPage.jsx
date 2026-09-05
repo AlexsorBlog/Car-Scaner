@@ -148,6 +148,11 @@ async function fetchNearbyShops([lat, lon], radiusM = 5000, attempt = 1) {
   try {
     const res = await fetch('https://overpass-api.de/api/interpreter', {
       method: 'POST',
+      // Without this, fetch() defaults the body to text/plain, and Overpass's
+      // server rejects that outright with 406 Not Acceptable — confirmed by
+      // reproducing the exact request outside the app; it fails identically
+      // regardless of radius since the request never reaches the query engine.
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'data=' + encodeURIComponent(query),
     });
     if (!res.ok) throw new Error(`Overpass API: HTTP ${res.status}`);

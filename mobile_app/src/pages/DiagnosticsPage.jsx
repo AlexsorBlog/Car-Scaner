@@ -222,12 +222,12 @@ export default function DiagnosticsPage() {
       {/* МОДАЛКА ДЕТАЛЕЙ ПОМИЛКИ */}
       {selectedError && (
         <div className="fixed inset-0 z-[130] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in p-safe pt-safe">
-          <div className="bg-[#0b0c10] border-t border-gray-800 rounded-t-3xl w-full flex flex-col shadow-2xl pb-8 animate-in slide-in-from-bottom-10">
-            <div className="p-5 border-b border-gray-800 flex justify-between items-center bg-[#111318] rounded-t-3xl">
+          <div className="bg-[#0b0c10] border-t border-gray-800 rounded-t-3xl w-full max-h-[85dvh] flex flex-col shadow-2xl animate-in slide-in-from-bottom-10 overflow-hidden">
+            <div className="p-5 border-b border-gray-800 flex justify-between items-center bg-[#111318] rounded-t-3xl shrink-0">
               <h2 className="font-bold text-sm text-white uppercase tracking-wider">Деталі помилки</h2>
               <button onClick={() => setSelectedError(null)} className="text-gray-500 p-1 hover:text-white transition-colors">✕</button>
             </div>
-            <div className="p-6">
+            <div className="p-6 pb-8 overflow-y-auto overscroll-contain">
               <div className="flex flex-col items-center gap-2 mb-4">
                 <div className={`w-12 h-12 rounded-xl flex items-center justify-center border
                   ${{ active: 'bg-red-500/10 border-red-500/20', pending: 'bg-amber-500/10 border-amber-500/20', historic: 'bg-gray-800 border-gray-700' }[selectedError.statusCategory || 'active']}`}>
@@ -269,14 +269,14 @@ export default function DiagnosticsPage() {
       {/* НОВЕ: ІСТОРІЯ ПОМИЛОК МОДАЛКА */}
       {showHistoryModal && (
         <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-md flex items-end md:items-center justify-center animate-in fade-in p-4 pt-safe">
-           <div className="bg-[#0b0c10] w-full max-w-2xl rounded-3xl border border-gray-800 shadow-2xl h-[70vh] flex flex-col animate-in zoom-in-95 overflow-hidden">
+           <div className="bg-[#0b0c10] w-full max-w-2xl rounded-3xl border border-gray-800 shadow-2xl h-[70dvh] flex flex-col animate-in zoom-in-95 overflow-hidden">
              <div className="p-5 border-b border-gray-800 flex justify-between items-center bg-[#111318]">
                <h2 className="text-sm font-bold text-white uppercase tracking-widest">Архів сканувань</h2>
                <button onClick={() => setShowHistoryModal(false)} className="text-gray-400 bg-gray-900 p-2 rounded-full hover:bg-gray-800 transition-colors">
                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                </button>
              </div>
-             <div className="flex-1 p-5 overflow-y-auto space-y-4">
+             <div className="flex-1 p-5 overflow-y-auto overscroll-contain space-y-4">
                {errorHistory.length === 0 ? (
                  <div className="text-center py-10 text-gray-500 text-xs">Історія сканувань порожня.</div>
                ) : (

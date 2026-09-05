@@ -117,7 +117,7 @@ export default function ChatPage() {
       </div>
 
       {/* MESSAGES */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 flex flex-col gap-3 pb-4">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain px-5 flex flex-col gap-3 pb-4">
         {messagesByType[activeTab] === null ? (
           <div className="flex justify-center py-10">
             <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
