@@ -93,7 +93,7 @@ export default function LeaderboardPage() {
   }, [myRank]);
 
   return (
-    <div className="min-h-[100dvh] bg-[#050505] pb-10">
+    <div className="min-h-app bg-[#050505] pb-10">
       {/* HEADER */}
       <div className="flex justify-between items-center px-5 pt-6 mb-4">
         <div>

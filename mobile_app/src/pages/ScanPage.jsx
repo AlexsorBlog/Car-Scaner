@@ -104,7 +104,7 @@ export default function ScanPage() {
     // AppLayout reserves pb-24 (6rem) below <main> for the fixed BottomNav —
     // fill exactly that visible slot so the input bar stays pinned above the
     // nav instead of drifting below the fold in a taller-than-viewport page.
-    <div className="h-[calc(100dvh-6rem)] flex flex-col">
+    <div className="h-[calc(var(--app-height)-6rem)] flex flex-col">
       {/* HEADER */}
       <div className="flex items-center justify-between px-5 pt-6 pb-3">
         <div>
@@ -166,7 +166,7 @@ export default function ScanPage() {
       </div>
 
       {/* INPUT */}
-      <div className="p-4 pb-safe border-t border-gray-800 bg-[#050505] flex items-end gap-2">
+      <div className="p-4 border-t border-gray-800 bg-[#050505] flex items-end gap-2">
         <button
           onClick={() => handlePickPhoto(CameraSource.Photos)}
           disabled={isSending}

@@ -57,7 +57,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-[#050505] flex flex-col items-center justify-center p-6">
+    <div className="min-h-app bg-[#050505] flex flex-col items-center justify-center p-6">
       {/* Logo */}
       <div className="mb-8 text-center">
         <div className="w-16 h-16 rounded-2xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center mx-auto mb-3">

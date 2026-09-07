@@ -135,6 +135,24 @@ function haversineKm([lat1, lon1], [lat2, lon2]) {
 // ── Overpass query — the free public instance occasionally times out under
 // load (a real, external reliability issue, not a query bug); retry once
 // before giving up instead of silently returning nothing ─────────────────────
+// Global Overpass instances, tried in order. The free public API is routinely
+// overloaded — measured directly: overpass-api.de answered fine earlier in
+// development and later timed out completely on the same query, which is
+// exactly the "Не вдалося завантажити СТО" the user hit with GPS working fine.
+// One endpoint is therefore a single point of failure.
+//
+// Deliberately GLOBAL instances only. overpass.osm.ch was tested and rejected:
+// it answers HTTP 200 in 0.4s but carries Switzerland data only, so a Kyiv
+// query returns zero elements — which would show as "no service stations
+// nearby" and be far more misleading than an outright error.
+const OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+];
+
+const OVERPASS_TIMEOUT_MS = 12000;
+
 async function fetchNearbyShops([lat, lon], radiusM = 5000, attempt = 1) {
   const query = `
     [out:json][timeout:15];
@@ -145,32 +163,53 @@ async function fetchNearbyShops([lat, lon], radiusM = 5000, attempt = 1) {
     );
     out center 40;
   `;
-  try {
-    const res = await fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      // Without this, fetch() defaults the body to text/plain, and Overpass's
-      // server rejects that outright with 406 Not Acceptable — confirmed by
-      // reproducing the exact request outside the app; it fails identically
-      // regardless of radius since the request never reaches the query engine.
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'data=' + encodeURIComponent(query),
-    });
-    if (!res.ok) throw new Error(`Overpass API: HTTP ${res.status}`);
-    const json = await res.json();
-    return (json.elements || []).map(el => ({
-      id: el.id,
-      name: el.tags?.name || 'СТО без назви',
-      lat: el.lat ?? el.center?.lat,
-      lon: el.lon ?? el.center?.lon,
-      phone: el.tags?.phone || el.tags?.['contact:phone'] || null,
-      opening: el.tags?.opening_hours || null,
-      isPartner: false,
-    })).filter(s => s.lat && s.lon);
-  } catch (err) {
-    if (attempt < 2) {
-      await new Promise(r => setTimeout(r, 1500));
-      return fetchNearbyShops([lat, lon], radiusM, attempt + 1);
+  const failures = [];
+
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    // Per-endpoint timeout, so one hung mirror can't stall the whole lookup —
+    // fetch() has no built-in timeout and will otherwise wait indefinitely.
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), OVERPASS_TIMEOUT_MS);
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        // Without this, fetch() defaults the body to text/plain, and Overpass's
+        // server rejects that outright with 406 Not Acceptable — confirmed by
+        // reproducing the exact request outside the app; it fails identically
+        // regardless of radius since the request never reaches the query engine.
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'data=' + encodeURIComponent(query),
+        signal: abort.signal,
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      return (json.elements || []).map(el => ({
+        id: el.id,
+        name: el.tags?.name || 'СТО без назви',
+        lat: el.lat ?? el.center?.lat,
+        lon: el.lon ?? el.center?.lon,
+        phone: el.tags?.phone || el.tags?.['contact:phone'] || null,
+        opening: el.tags?.opening_hours || null,
+        isPartner: false,
+      })).filter(s => s.lat && s.lon);
+    } catch (err) {
+      const reason = err.name === 'AbortError' ? `timeout >${OVERPASS_TIMEOUT_MS}ms` : err.message;
+      console.warn(`[Services] ${endpoint} failed: ${reason}`);
+      failures.push(`${new URL(endpoint).hostname}: ${reason}`);
+    } finally {
+      clearTimeout(timer);
     }
+  }
+
+  // Every mirror is down/unreachable. One more full pass after a pause covers
+  // the common case of a transient overload spike across the public instances.
+  if (attempt < 2) {
+    await new Promise(r => setTimeout(r, 1500));
+    return fetchNearbyShops([lat, lon], radiusM, attempt + 1);
+  }
+  {
+    const err = new Error('Сервіс карт недоступний. Спробуйте ще раз за хвилину.');
+    err.detail = failures.join(' | ');
     throw err;
   }
 }
@@ -363,7 +402,7 @@ export default function ServicesPage() {
 
   return (
     // 1. Бронебійний Flex-контейнер на всю висоту екрану
-    <div className="relative w-full bg-[#050505] overflow-hidden flex flex-col" style={{ height: '100dvh' }}>
+    <div className="relative w-full bg-[#050505] overflow-hidden flex flex-col" style={{ height: 'var(--app-height)' }}>
 
       {/* 2. Відступ для "чубчика" (Dynamic Island/Status Bar) */}
       <div style={{ height: 'var(--safe-top, env(safe-area-inset-top, 0px))' }} className="w-full shrink-0 bg-[#050505]"></div>

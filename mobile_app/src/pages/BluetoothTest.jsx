@@ -158,7 +158,7 @@ export default function BluetoothTest() {
   const isScanning = telemetry.isConnected;
 
   return (
-    <div className="p-5 font-sans min-h-[100dvh] bg-[#050505] text-white">
+    <div className="p-5 font-sans min-h-app bg-[#050505] text-white">
 
       {/* Mode toggle */}
       <div className="mb-6 bg-[#111318] p-1 rounded-xl border border-gray-800 flex relative">

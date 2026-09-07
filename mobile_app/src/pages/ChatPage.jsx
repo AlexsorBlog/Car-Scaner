@@ -82,7 +82,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-[#050505] flex flex-col">
+    <div className="min-h-app bg-[#050505] flex flex-col">
       {/* HEADER */}
       <div className="flex items-center justify-between px-5 pt-6 pb-3">
         <button
@@ -155,7 +155,7 @@ export default function ChatPage() {
       </div>
 
       {/* INPUT */}
-      <div className="p-4 pb-safe border-t border-gray-800 bg-[#050505] flex items-end gap-2">
+      <div className="p-4 border-t border-gray-800 bg-[#050505] flex items-end gap-2">
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}

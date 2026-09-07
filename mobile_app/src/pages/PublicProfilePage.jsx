@@ -35,7 +35,7 @@ export default function PublicProfilePage() {
   }, [id]);
 
   return (
-    <div className="min-h-[100dvh] bg-[#050505] pb-10">
+    <div className="min-h-app bg-[#050505] pb-10">
       <div className="flex items-center justify-between px-5 pt-6 mb-6">
         <button
           onClick={() => navigate(-1)}

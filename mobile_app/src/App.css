@@ -106,6 +106,21 @@ html, body {
 .pt-safe { padding-top: var(--safe-top); }
 .pb-safe { padding-bottom: var(--safe-bottom); }
 
+/* ── Page height ────────────────────────────────────────────────────────────
+   #root is the scroll container: height 100dvh, border-box, with the safe-area
+   insets as PADDING. So the space a page actually gets is
+   100dvh − safe-top − safe-bottom.
+
+   A page sizing itself with plain 100dvh therefore overshoots by exactly the
+   insets — on a notched iPhone that's ~80px of overflow, which is what pushed
+   ScanPage's input bar below the fold and made "fixed height" pages scroll.
+   Use these instead of 100dvh anywhere inside #root. */
+:root {
+  --app-height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
+}
+.h-app     { height: var(--app-height); }
+.min-h-app { min-height: var(--app-height); }
+
 /* App-wide: this should feel like a native app, not a browser tab — hide the
    visible scrollbar track on every scrollable element (the page itself, every
    modal's internal scroll area, every horizontal chip row) while keeping
