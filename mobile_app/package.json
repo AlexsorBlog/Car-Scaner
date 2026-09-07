@@ -12,7 +12,9 @@
     "test:vin": "node src/obd/__tests__/vinParser.test.mjs",
     "test:reallog": "node src/obd/__tests__/realLogReplay.test.mjs",
     "test:fuel": "node src/obd/__tests__/fuelRate.test.mjs",
-    "test": "npm run test:dtc && npm run test:vin && npm run test:reallog && npm run test:fuel"
+    "test:scanner": "node src/obd/__tests__/dtcScanner.test.mjs",
+    "test:log": "node src/obd/__tests__/diagnosticLog.test.mjs",
+    "test": "npm run test:dtc && npm run test:vin && npm run test:reallog && npm run test:fuel && npm run test:scanner && npm run test:log"
   },
   "dependencies": {
     "@capacitor-community/bluetooth-le": "^8.1.3",

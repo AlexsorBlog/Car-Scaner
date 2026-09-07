@@ -55,7 +55,8 @@ export function TelemetryProvider({ children }) {
     speed:             0,
     rpm:               0,
     temp:              0,
-    fuel:              0,
+    fuel:              0,      // instantaneous rate, л/год
+    fuelL100:          null,   // rolling-window consumption, л/100км (null until enough distance)
     metrics:           {},
     errors:            [],
     hasScannedErrors:  false,
@@ -71,6 +72,22 @@ export function TelemetryProvider({ children }) {
 
   const pollingAbort  = useRef(null);
   const isPaused      = useRef(false);
+
+  // ── Rolling fuel-consumption accumulator ───────────────────────────────────
+  // л/100км can't be read off a single instant — at a red light the car burns
+  // fuel while covering no distance, so an instantaneous ratio is infinite.
+  // Instead we integrate both fuel and distance over a rolling window and
+  // divide the totals, which is how a real trip computer's "current
+  // consumption" readout behaves: stable, always populated while driving, and
+  // it holds a sensible value when you stop rather than blanking out.
+  //
+  // This runs off whatever л/год getSmartFuelRate() produced — including its
+  // calculated fallbacks — so it keeps working on cars like this Mercedes where
+  // both PID 015E and MAF (0110) answer "NO DATA".
+  const FUEL_WINDOW_MS = 120000; // 2 min of driving history
+  const fuelSamples    = useRef([]); // [{ t, litres, km }] deltas within window
+  const fuelLastT      = useRef(null);
+  const fuelLastLph    = useRef(null);
   const activeSensors = useRef([]);
   const lastDbSave    = useRef(0);
   const tickCount     = useRef(0);
@@ -201,6 +218,47 @@ export function TelemetryProvider({ children }) {
       }
 
       const now = Date.now();
+
+      // ── Integrate fuel + distance over this cycle ────────────────────────
+      // Speed is a FAST pid (every cycle) while fuel rate is MEDIUM (every 10th),
+      // so carry the last known л/год forward between fuel samples rather than
+      // only integrating on the cycles that happened to refresh it.
+      if (cycleTopLevel.fuel != null) {
+        const lph = parseFloat(cycleTopLevel.fuel);
+        if (!isNaN(lph)) fuelLastLph.current = lph;
+      }
+      if (fuelLastT.current != null && fuelLastLph.current != null) {
+        const dtHours = (now - fuelLastT.current) / 3600000;
+        // Ignore absurd gaps (app backgrounded, BLE stall) — they'd otherwise
+        // dump minutes of phantom fuel into the window in one step.
+        if (dtHours > 0 && dtHours < 1 / 60) {
+          const speedKmh = parseFloat(cycleTopLevel.speed);
+          fuelSamples.current.push({
+            t:      now,
+            litres: fuelLastLph.current * dtHours,
+            km:     (!isNaN(speedKmh) ? speedKmh : 0) * dtHours,
+          });
+        }
+      }
+      fuelLastT.current = now;
+
+      // Drop anything that aged out of the rolling window
+      const windowStart = now - FUEL_WINDOW_MS;
+      while (fuelSamples.current.length && fuelSamples.current[0].t < windowStart) {
+        fuelSamples.current.shift();
+      }
+
+      let totalL = 0, totalKm = 0;
+      for (const s of fuelSamples.current) { totalL += s.litres; totalKm += s.km; }
+      // Below ~50 m the ratio is still dominated by noise; leave it null and let
+      // the UI say so rather than printing a wild number.
+      const avgL100 = totalKm > 0.05
+        ? Math.round((totalL / totalKm) * 1000) / 10
+        : null;
+      if (avgL100 != null && avgL100 > 0 && avgL100 < 100) {
+        cycleTopLevel.fuelL100 = avgL100;
+      }
+
       if (now - lastDbSave.current > DB_SAVE_INTERVAL_MS && Object.keys(cycleTopLevel).length > 0) {
         saveTelemetryData(cycleTopLevel).catch(console.error);
         lastDbSave.current = now;
@@ -313,16 +371,32 @@ export function TelemetryProvider({ children }) {
     try {
       const now = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
 
-      const result = await obd.smartReadDTC(dtcDictionary);
+      const result = await obd.fullScanDTC(dtcDictionary);
       console.log(`[OBD] Сканування завершено. ${result.variant}`);
       console.log(`[OBD] Сирі коди до фільтрації:`, result.codes.map(c => c.base || c));
+      if (result.ecus?.length) {
+        console.log('[OBD] Опитані модулі:', result.ecus.map(e => `${e.request}(${e.codeCount})`).join(', '));
+      }
+      // If the car's own counters say there are faults we couldn't read, say so
+      // loudly. Silently reporting "no errors" in that case is exactly how a
+      // real thermostat + battery fault went unnoticed.
+      for (const w of result.warnings || []) {
+        console.warn('[OBD] ⚠', w);
+        toast.error(w);
+      }
 
       const finalErrors = result.codes
-        // ── 1. Only codes in our dictionary ────────────────────────────────
+        // ── 1. Structural validity only ────────────────────────────────────
+        // This used to drop every code missing from the local dictionary,
+        // which silently discarded exactly the manufacturer-specific codes
+        // (P1xxx/B1xxx/U1xxx) that a brand like Mercedes stores its thermostat
+        // and charging faults under. A code the ECU reports is real whether or
+        // not we happen to have a description for it — show it, and label it.
         .filter(codeItem => {
-          const known = !!dtcDictionary[codeItem.base];
-          if (!known) console.log(`[DTC] Dropping unknown: ${codeItem.base}`);
-          return known;
+          const base = codeItem.base || codeItem.code;
+          const ok = /^[PCBU][0-3][0-9A-F]{3}$/.test(base);
+          if (!ok) console.log(`[DTC] Dropping structurally invalid: ${base}`);
+          return ok;
         })
         // ── 2. Deduplicate — keep highest-priority source per base code ────
         .reduce((acc, codeItem) => {
@@ -366,7 +440,10 @@ export function TelemetryProvider({ children }) {
            *   KWP      → treat same as Mode 03                → 'active'
            */
           let statusCategory;
-          if (v.includes('Mode 07')) {
+          if (codeItem.statusCategory) {
+            // Full scan already derived this from the UDS status byte / mode.
+            statusCategory = codeItem.statusCategory;
+          } else if (v.includes('Mode 07')) {
             statusCategory = 'pending';
           } else if (v.includes('Mode 0A')) {
             statusCategory = 'historic';
@@ -377,14 +454,20 @@ export function TelemetryProvider({ children }) {
             statusCategory = _dtcStatusCategory(codeItem.statusByte ?? null);
           }
 
+          const isKnown = !!dtcDictionary[baseCode];
           return {
             code:           codeItem.code,
-            title:          codeItem.title,
-            desc:           `Протокол: ${codeItem.variant || result.variant}`,
+            title:          isKnown ? codeItem.title : `Код виробника ${baseCode}`,
+            desc:           codeItem.ecu
+              ? `${codeItem.ecu} · ${codeItem.variant || result.variant}`
+              : `Протокол: ${codeItem.variant || result.variant}`,
             severity:       _classifyDtcSeverity(baseCode),
             cost:           _estimateDtcCost(baseCode),
             statusCategory,
             statusByte:     codeItem.statusByte ?? null,
+            ecu:            codeItem.ecu ?? null,
+            ecuAddress:     codeItem.ecuAddress ?? null,
+            isManufacturerCode: !isKnown,
           };
         });
 

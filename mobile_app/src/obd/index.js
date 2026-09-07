@@ -27,6 +27,7 @@ import {
   calcMafFuelRate,
   calcHeuristicFuelRate,
 } from './fuelRate.js';
+import { DtcScanRunner } from './dtcScanRunner.js';
 
 // ── Server config — swap URL when server is ready ─────────────────────────────
 // When SERVER_ENABLED = true the app will route OBD queries through your
@@ -73,17 +74,77 @@ class OBDManager {
         if (step.cmd === 'ATZ' && !res.toUpperCase().includes('ELM')) {
           console.warn('[OBD init] ATZ response unexpected — may not be ELM327');
         }
-        if (step.delay > 100) await this._sleep(step.delay);
+        // NB: this used to be `> 100`, so every 100ms step silently had no
+        // delay at all — the adapter got the next AT command immediately.
+        if (step.delay >= 100) await this._sleep(step.delay);
       } catch (err) {
         saveRawLog('INIT_ERROR', step.cmd, err.message, true);
         console.error(`[OBD init] ${step.desc} failed:`, err.message);
       }
     }
+
+    await this._warmUpProtocol();
     return true;
+  }
+
+  // ── Protocol warm-up ───────────────────────────────────────────────────────
+  // ATSP0 doesn't actually search on the AT command — it searches on the first
+  // real PID request, which can take several seconds on the first connect to a
+  // given car. Real logs showed the cost of not waiting for it:
+  //
+  //   ATSP0 | OK  →  010D | TIMEOUT  →  010C | STOPPED  →  0105 | TIMEOUT
+  //
+  // The first query times out mid-search, then the NEXT query interrupts the
+  // still-running search and comes back "STOPPED", cascading until the app gave
+  // up and reconnected. It only succeeded on the 4th attempt, once the adapter
+  // had cached the protocol — which is exactly the "doesn't connect the first
+  // time, works after 2-3 tries" report.
+  //
+  // So: send the standard 0100 handshake and give the search room to finish,
+  // backing OFF after a timeout instead of immediately firing the next command.
+  async _warmUpProtocol(attempts = 4) {
+    for (let i = 1; i <= attempts; i++) {
+      try {
+        const res = (await this._scanner.sendCommand('0100')) || '';
+        const clean = res.replace(/[\s\r\n>]/g, '').toUpperCase();
+        saveRawLog('INIT_WARMUP', '0100', res || 'NO_RESPONSE');
+
+        // "SEARCHING..." may prefix a perfectly good reply — only the 4100
+        // positive response actually confirms the protocol is established.
+        if (clean.includes('4100')) {
+          console.log(`[OBD init] protocol established on warm-up ${i}/${attempts}`);
+          return true;
+        }
+        // Timed out / aborted mid-search: let the adapter settle before the
+        // next attempt, otherwise we abort its own retry and get "STOPPED".
+        await this._sleep(1500);
+      } catch (err) {
+        saveRawLog('INIT_WARMUP_ERROR', '0100', err.message, true);
+        await this._sleep(1500);
+      }
+    }
+    // Not fatal — some ECUs don't answer 0100 but still serve individual PIDs.
+    console.warn('[OBD init] protocol warm-up did not confirm 4100; continuing anyway');
+    return false;
   }
 
   disconnect() {
     this._scanner.disconnect();
+  }
+
+  /**
+   * The last full scan's session, for export/bug reports.
+   *  - `text`    human-readable transcript (every command + verbatim response)
+   *  - `fixture` JSON that replays this exact car offline via makeReplayCar(),
+   *              i.e. paste it into a test and the car is reproducible in CI
+   */
+  getLastScanDiagnostics() {
+    if (!this._lastScanLog) return null;
+    return {
+      text: this._lastScanLog.toText(),
+      fixture: this._lastScanFixture,
+      stats: this._lastScanLog.stats(),
+    };
   }
 
   async query(cmdObj) {
@@ -243,7 +304,55 @@ class OBDManager {
     return { value: '--', unit: 'л/год', raw: '', name: 'FUEL_RATE', desc: 'Витрата палива' };
   }
 
-  // ── Smart DTC scanner ─────────────────────────────────────────────────────
+  // ── Full multi-ECU scan (preferred) ───────────────────────────────────────
+  //
+  // Walks every module on the bus rather than just whichever one answers the
+  // default header, opens a diagnostic session per module, and escalates
+  // generic OBD → UDS → KWP. See obd/dtcScanner.js for why the old
+  // single-ECU approach structurally could not find manufacturer faults.
+  //
+  // Falls back to the legacy single-ECU scan if the full scan throws, so a
+  // failure here can never leave the user with no scan at all.
+  async fullScanDTC(dtcDictionary = {}, { deepScan = true, onProgress } = {}) {
+    try {
+      const runner = new DtcScanRunner((cmd) => this._scanner.sendCommand(cmd), {
+        deepScan,
+        onProgress,
+        log: (msg) => { console.log(msg); saveRawLog('SCAN', 'flow', msg); },
+      });
+      const result = await runner.scan(dtcDictionary);
+
+      // Persist the full structured session, not a summary. This is what makes
+      // a real scan reproducible: `replayFixture` can be fed straight back
+      // through makeReplayCar() to re-run the exact car offline.
+      const fixture = result.diagnosticLog?.toReplayFixture({
+        capturedBy: 'fullScanDTC',
+        codes: result.codes.map(c => c.code),
+      });
+      this._lastScanLog = result.diagnosticLog;
+      this._lastScanFixture = fixture;
+
+      saveRawLog('SCAN_RESULT', 'full', JSON.stringify({
+        codes: result.codes.map(c => `${c.code}@${c.ecuAddress}`),
+        ecus: result.ecus.map(e => e.request),
+        protocol: result.protocol,
+        ms: result.durationMs,
+        warnings: result.warnings,
+        stats: result.diagnosticLog?.stats(),
+      }));
+      // Stored separately so the transcript survives even if the summary row
+      // gets rotated out of the capped log table.
+      if (fixture) saveRawLog('SCAN_FIXTURE', 'replay', JSON.stringify(fixture));
+      return result;
+    } catch (err) {
+      saveRawLog('SCAN_FATAL', 'full', err.message, true);
+      console.error('[OBD] full scan failed, falling back to legacy scan:', err);
+      const legacy = await this.smartReadDTC(dtcDictionary);
+      return { ...legacy, ecus: [], protocol: null, durationMs: 0 };
+    }
+  }
+
+  // ── Smart DTC scanner (legacy single-ECU path, kept as a fallback) ────────
 
   async smartReadDTC(dtcDictionary = {}) {
     const allCodes     = new Map();
@@ -323,17 +432,23 @@ class OBDManager {
       }
     };
 
-    // Raw (unformatted) CAN frames so multi-ECU 5902 blocks survive intact —
-    // see decoders.js header comment. Confirmed on a real Mercedes that running
-    // Mode 03/07/0A + KWP under this same CAF0 setting broke them: Mode 03 and
-    // Mode 07 (two different commands) came back byte-for-byte identical
-    // ("037F0011AAAAAAAA"), and the KWP queries came back as bare flow-control
-    // noise ("300800AAAAAAAAAA") — the signature of a malformed/unparseable
-    // request, not a real per-command ECU rejection.
-    try { await this._scanner.sendCommand('ATCAF0'); } catch (_) {}
-    await runMethods(udsMethods);
-
+    // EVERYTHING runs under CAF1 (CAN auto-formatting ON) so the adapter builds
+    // the ISO-TP header for us. Proven on a real Mercedes:
+    //
+    //   under CAF0:  03 → "037F0011AAAAAAAA"      190209 → "300800AAAAAAAAAA"
+    //   under CAF1:  03 → "4300" ✓  07 → "4700" ✓  0A → "4A00" ✓  18.. → "7F1811" ✓
+    //
+    // With CAF0 the adapter transmits our bytes verbatim, so the ECU reads the
+    // FIRST payload byte as the ISO-TP PCI header. For "190209" that byte is
+    // 0x19 → high nibble 1 = "First Frame", length 0x902 = 2306 bytes, so the
+    // ECU answers with a Flow Control frame ("30 08 00" = ContinueToSend,
+    // BlockSize 8, STmin 0) asking us to keep sending a message we never meant
+    // to start. That flow-control frame — padded with 0xAA — is the exact
+    // garbage seen for every 19xx query. CAF1 makes the adapter emit
+    // "03 19 02 09" (PCI + 3 data bytes), which is a valid single-frame
+    // request, the same mechanism that already fixed Mode 03/07/0A above.
     try { await this._scanner.sendCommand('ATCAF1'); } catch (_) {}
+    await runMethods(udsMethods);
     await runMethods(legacyMethods);
 
     // ── Post-scan: restore normal ELM timing for live polling ─────────────────

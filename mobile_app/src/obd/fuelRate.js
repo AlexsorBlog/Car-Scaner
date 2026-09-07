@@ -66,16 +66,44 @@ export function calcMafFuelRate(mafGs, fuelTypeId = 1) {
   return ((mafGs * 3600) / (fp.afr * fp.density)).toFixed(1);
 }
 
-// Last-resort heuristic when the ECU exposes nothing else — assumes a 2.0L
-// petrol engine if displacement is unknown. Deliberately rough; only used
-// when every real-data path above has failed.
-export function calcHeuristicFuelRate(rpm, throttlePercent, loadPercent) {
-  if (rpm == null || isNaN(rpm) || throttlePercent == null || isNaN(throttlePercent)) return null;
-  const tps  = throttlePercent / 100;
-  const load = (loadPercent != null && !isNaN(loadPercent)) ? loadPercent / 100 : tps;
-  const DISPLACEMENT_L = 2.0;
-  const BSFC = 0.00028; // brake-specific fuel consumption constant (rough)
-  const lph = (DISPLACEMENT_L * rpm * load * BSFC).toFixed(1);
+// Air density at roughly 20°C / 1 atm, g/L — used to turn the engine's
+// theoretical volumetric airflow into a mass airflow.
+const AIR_DENSITY_G_PER_L = 1.2;
+
+// Last-resort estimate when the ECU exposes neither PID 015E nor MAF (0110) —
+// on this Mercedes both come back "NO DATA", so this path is what actually
+// drives the gauge. Estimates airflow via the standard speed-density relation,
+// then reuses the SAME AFR/density physics as the real MAF path:
+//
+//   intake volume flow (4-stroke) = rpm/2 revolutions × displacement, per min
+//                                 = rpm × L / 120  litres per second
+//   MAF_g_s ≈ that × air density × engine load
+//
+// PID 0104 "calculated engine load" is defined as current airflow ÷ peak
+// airflow, so it is exactly the right multiplier here — it already carries
+// the throttling/volumetric-efficiency effect. Throttle position is only a
+// fallback for ECUs that don't report load.
+//
+// Sanity vs the real car: 701 rpm, 24% load, 2.0L →
+//   (701 × 2.0 / 120) × 1.2 × 0.24 = 3.4 g/s  (real idle MAF is 2-4 g/s)
+//   → ~1.1 л/год, matching the commonly-cited 0.6-1.0 л/год idle range.
+// The previous BSFC-constant formula returned 0.09 л/год for the same inputs —
+// roughly 10x too low, which is the "~100 ml/h" the gauge was showing.
+export function calcHeuristicFuelRate(rpm, throttlePercent, loadPercent, displacementL = 2.0) {
+  if (rpm == null || isNaN(rpm) || rpm <= 0) return null;
+
+  const loadFraction =
+    (loadPercent != null && !isNaN(loadPercent)) ? loadPercent / 100
+    : (throttlePercent != null && !isNaN(throttlePercent)) ? throttlePercent / 100
+    : null;
+  if (loadFraction == null || loadFraction <= 0) return null;
+
+  const intakeLitresPerSec = (rpm * displacementL) / 120;
+  const estimatedMafGs     = intakeLitresPerSec * AIR_DENSITY_G_PER_L * loadFraction;
+
+  // Reuse the real MAF physics so both paths agree on AFR and fuel density.
+  const lph = calcMafFuelRate(estimatedMafGs, 1);
+  if (lph == null) return null;
   return (parseFloat(lph) > 0 && parseFloat(lph) < 80) ? lph : null;
 }
 

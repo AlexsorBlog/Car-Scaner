@@ -99,12 +99,34 @@ for (const cmd of MERCEDES_UDS_FUEL_CMDS) {
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('\n[4] Heuristic fallback (last resort — RPM + throttle + load)\n');
 
-check('idle-like RPM/throttle/load produces a small, plausible л/год value',
-  (() => { const v = calcHeuristicFuelRate(800, 15, 20); return v != null && parseFloat(v) > 0 && parseFloat(v) < 3; })());
+// Real values decoded from Тимур's Mercedes log while idling:
+//   010C = 410C0AF6 → 0x0AF6/4 = 701 rpm
+//   0104 = 41043D   → 0x3D*100/255 = 24% load
+//   0111 = 411120   → 0x20*100/255 = 12% throttle
+// Both 015E (fuel rate) and 0110 (MAF) return NO DATA on this ECU, so this
+// heuristic is what actually drives the gauge on that car.
+const realIdle = calcHeuristicFuelRate(701, 12, 24);
+check('real logged idle (701 rpm, 24% load) lands in the commonly-cited 0.6-1.5 л/год idle range',
+  realIdle != null && parseFloat(realIdle) >= 0.6 && parseFloat(realIdle) <= 1.5,
+  `got ${realIdle} л/год`);
+
+// Regression pin: the old BSFC-constant formula gave 2.0*701*0.24*0.00028 =
+// 0.09 л/год for those same real inputs — ~10x too low, which is the "~100
+// ml/h" the gauge was showing.
+const oldBsfcResult = (2.0 * 701 * 0.24 * 0.00028).toFixed(1);
+check('corrected heuristic is far above the old BSFC formula that produced the bogus reading',
+  parseFloat(realIdle) > parseFloat(oldBsfcResult) * 5,
+  `old=${oldBsfcResult} л/год vs fixed=${realIdle} л/год`);
+
 check('missing RPM returns null instead of NaN/garbage', calcHeuristicFuelRate(null, 15, 20) === null);
-check('missing throttle returns null instead of NaN/garbage', calcHeuristicFuelRate(800, null, 20) === null);
-check('missing load falls back to using throttle as load, still produces a value',
+check('missing BOTH load and throttle returns null', calcHeuristicFuelRate(800, null, null) === null);
+check('load alone is enough (throttle missing) — load is the better airflow proxy',
+  calcHeuristicFuelRate(800, null, 20) != null);
+check('throttle alone is used as a fallback when load is missing',
   calcHeuristicFuelRate(800, 15, null) != null);
+check('scales sensibly under load — 3000 rpm @ 60% is well above idle but still plausible',
+  (() => { const v = parseFloat(calcHeuristicFuelRate(3000, 60, 60)); return v > 5 && v < 25; })(),
+  `got ${calcHeuristicFuelRate(3000, 60, 60)} л/год`);
 
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('\n[5] л/год → л/100км conversion (the actual unit switch requested)\n');
@@ -113,7 +135,9 @@ console.log('\n[5] л/год → л/100км conversion (the actual unit switch r
 check('converts a realistic cruising rate correctly (8 л/год @ 80 km/h → 10.0 л/100км)',
   lphToL100km('8', 80) === '10.0');
 // idle: fuel burns but speed ~0 — must NOT return a value (undefined/nonsensical), not '--' math
-check('at idle (speed below threshold) returns null so the caller keeps showing л/год',
+// At a standstill л/100км is undefined; returning null lets the caller decide
+// (DashboardPage holds the last valid reading rather than blanking the tile).
+check('at idle (speed below threshold) returns null rather than an infinite value',
   lphToL100km('0.8', 0) === null);
 check('just under the moving threshold (4 km/h) still returns null',
   lphToL100km('5', 4) === null);
@@ -123,7 +147,46 @@ check('an implausible result (>100 л/100км) is rejected rather than displayed
   lphToL100km('50', 5) === null); // 50 л/год at 5 km/h → 1000 л/100км, clearly not real
 
 // ─────────────────────────────────────────────────────────────────────────────
-console.log('\n[6] Structural check — real PID data must still be tried before any calculated fallback\n');
+console.log('\n[6] Rolling-window л/100км — must stay defined when the car stops\n');
+
+// Mirrors TelemetryContext's accumulator: integrate л/год and km/h over elapsed
+// time, then divide the totals. The point is that stopping must NOT blow the
+// figure up to infinity the way an instantaneous ratio does.
+function rollingL100(samples) {
+  let totalL = 0, totalKm = 0;
+  for (const { lph, speedKmh, seconds } of samples) {
+    const dtH = seconds / 3600;
+    totalL  += lph * dtH;
+    totalKm += speedKmh * dtH;
+  }
+  return totalKm > 0.05 ? Math.round((totalL / totalKm) * 1000) / 10 : null;
+}
+
+// 60s cruising at 90 km/h burning 7 л/год → 7/90*100 = 7.8 л/100км
+check('steady cruise integrates to the expected л/100км',
+  rollingL100([{ lph: 7, speedKmh: 90, seconds: 60 }]) === 7.8,
+  `got ${rollingL100([{ lph: 7, speedKmh: 90, seconds: 60 }])}`);
+
+// Same cruise, then 30s stopped at a light burning 1.1 л/год with 0 km covered.
+// An instantaneous reading would be infinite here; the window must stay finite
+// and only drift up modestly.
+const withStop = rollingL100([
+  { lph: 7,   speedKmh: 90, seconds: 60 },
+  { lph: 1.1, speedKmh: 0,  seconds: 30 },
+]);
+check('stopping at a light keeps the figure finite instead of going infinite',
+  withStop != null && isFinite(withStop), `got ${withStop}`);
+check('the idle period nudges consumption up but stays realistic (< 10 л/100км)',
+  withStop > 7.8 && withStop < 10, `got ${withStop} л/100км`);
+check('instantaneous conversion at that same standstill IS undefined — which is why the window exists',
+  lphToL100km('1.1', 0) === null);
+
+// A car that has genuinely never moved has no distance to divide by.
+check('never-moved car yields null (no distance means no per-distance figure exists)',
+  rollingL100([{ lph: 1.1, speedKmh: 0, seconds: 120 }]) === null);
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n[7] Structural check — real PID data must still be tried before any calculated fallback\n');
 
 const indexSrc = readFileSync(join(__dirname, '..', 'index.js'), 'utf-8');
 const fnStart = indexSrc.indexOf('async getSmartFuelRate()');

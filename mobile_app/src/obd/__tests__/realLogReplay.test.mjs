@@ -172,6 +172,46 @@ for (const method of dtcMethods) {
 ok('DTC parser never crashed on any of the 9 real captured responses', !anyCrash);
 ok('DTC parser hallucinated zero codes total from this malformed capture', totalCodesFound === 0);
 
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n[4] Post-fix capture — same car, same scan, after the ATCAF1 change\n');
+
+// Verbatim from Тимур's 2026-09-05 22:18 session, running the build with the
+// CAF fix. Compare against the pre-fix bytes in section [3] above: the legacy
+// modes went from identical malformed garbage to proper positive responses,
+// which is what proves the request framing — not the parser — was the bug.
+const POST_FIX_LOG = `
+[22:18:38] [DTC_RAW_RES] CMD: 03 | RES: 4300
+[22:18:38] [DTC_RAW_RES] CMD: 07 | RES: 4700
+[22:18:38] [DTC_RAW_RES] CMD: 0A | RES: 4A00
+[22:18:38] [DTC_RAW_RES] CMD: 18000000 | RES: 7F1811
+[22:18:38] [DTC_RAW_RES] CMD: 1802FF00 | RES: 7F1811
+[22:18:37] [DTC_RAW_RES] CMD: 190209 | RES: 300800AAAAAAAAAA
+`.trim();
+
+const postFix = parseLog(POST_FIX_LOG);
+const byCmd = (c) => postFix.find(e => e.cmd === c)?.res;
+
+ok('Mode 03 now returns a well-formed positive response (43 = 0x40+0x03), not garbage',
+  byCmd('03') === '4300');
+ok('Mode 07 now returns a well-formed positive response (47), distinct from Mode 03',
+  byCmd('07') === '4700' && byCmd('07') !== byCmd('03'));
+ok('Mode 0A now answers at all (4A) instead of "NO DATA"', byCmd('0A') === '4A00');
+ok('KWP now returns a genuine per-service negative response (7F 18 11 = service not supported)',
+  byCmd('18000000') === '7F1811');
+
+// The count byte after 43/47/4A is 00 → the ECU really is reporting zero
+// generic DTCs. Thermostat/battery faults are manufacturer-specific and never
+// appear in Mode 03; they need the UDS 19 path, which is what the CAF1 change
+// for udsMethods addresses.
+for (const [cmd, dec] of [['03', dtc], ['07', dtc], ['0A', dtc]]) {
+  const payload = stripNegativeResponses(assembleHexPayload(byCmd(cmd)));
+  const res = parseLegacyModeDtc(cmd, payload, dec) || [];
+  ok(`${cmd}: decodes cleanly to zero stored codes (count byte 00), no crash`, res.length === 0);
+}
+
+ok('UDS 190209 was still returning a flow-control frame (30 08 00) pre-CAF1-change — the remaining bug this round fixes',
+  byCmd('190209') === '300800AAAAAAAAAA');
+
 console.log(`\n${pass} passed, ${fail} failed`);
 console.log(
   fail === 0

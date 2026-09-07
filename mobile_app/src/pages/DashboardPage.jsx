@@ -188,9 +188,12 @@ export default function DashboardPage() {
   const [perfFilter, setPerfFilter] = useState('0-100'); 
   const [selectedPerfRecord, setSelectedPerfRecord] = useState(null); 
 
-  const [tripDistance, setTripDistance] = useState(() => Number(localStorage.getItem('obd_trip_distance')) || 0); 
+  const [tripDistance, setTripDistance] = useState(() => Number(localStorage.getItem('obd_trip_distance')) || 0);
   const lastSpeedTime = useRef(Date.now());
   const currentSpeedRef = useRef(0);
+  // Last л/100км reading that was actually computable (i.e. while moving) —
+  // held so the fuel tile doesn't blank out every time the car stops.
+  const lastFuelL100 = useRef(null);
   
   const perfInterval = useRef(null);
   const perfStartTime = useRef(null);
@@ -834,20 +837,30 @@ export default function DashboardPage() {
     const needleAngle = -135 + ((normalizedSpeed / 220) * 270);
     const dynamicGlow = `0 0 ${15 + (speedVal / 3)}px rgba(59,130,246,${0.1 + (speedVal / 250)})`;
 
-    // FUEL_RATE comes from getSmartFuelRate() in л/год (a rate, well-defined
-    // even at idle — kept as-is in history/graphs). For the tile itself, show
-    // л/100км while actually moving, matching how real trip computers work.
-    // Below a minimal speed the conversion is meaningless (fuel burns while
-    // stationary but km/h is ~0), so lphToL100km returns null and we keep
-    // showing л/год at idle instead of a nonsensical or infinite л/100км.
+    // The fuel tile always reports л/100км — that's the number drivers read.
+    //
+    // Prefer the rolling-window figure from TelemetryContext: it integrates
+    // fuel and distance over the last 2 minutes, so it stays populated and
+    // steady at a red light instead of going infinite (л/100км is undefined the
+    // instant speed hits 0). It's driven by whatever л/год getSmartFuelRate()
+    // produced, including its calculated fallbacks, so it works on cars whose
+    // fuel PIDs answer "NO DATA".
+    //
+    // Falls back to an instantaneous conversion if the window hasn't filled
+    // yet, then to the last value we held. Only a car that has genuinely never
+    // moved shows "--" — with no distance at all there is no per-distance
+    // figure to report.
     let displayValue = metricData.value;
     let displayUnit  = metricData.unit;
-    if (item.id === 'FUEL_RATE' && metricData.value !== '--') {
-      const l100 = lphToL100km(metricData.value, telemetry.speed);
-      if (l100 != null) {
-        displayValue = l100;
-        displayUnit  = 'л/100км';
-      }
+    if (item.id === 'FUEL_RATE') {
+      const rolling = telemetry.fuelL100 != null ? telemetry.fuelL100.toFixed(1) : null;
+      const instant = metricData.value !== '--'
+        ? lphToL100km(metricData.value, telemetry.speed)
+        : null;
+      const l100 = rolling ?? instant;
+      if (l100 != null) lastFuelL100.current = l100;
+      displayValue = l100 ?? lastFuelL100.current ?? '--';
+      displayUnit  = 'л/100км';
     }
 
     return (

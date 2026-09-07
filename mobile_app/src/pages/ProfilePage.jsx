@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { useTelemetry } from '../context/TelemetryContext.jsx';
 import { getRawLogs, clearRawLogs } from '../services/db.js';
+import { obd } from '../obd/index.js';
 import { api } from '../services/api.js';
 import { compressImage } from '../utils/compressImage.js';
 import { toast } from '../components/ui/Toast.jsx';
@@ -110,8 +111,29 @@ export default function ProfilePage() {
         return `[${time}] [${l.type}] CMD: ${l.command} | RES: ${l.response} ${l.isError ? '(ERROR)' : ''}`;
       }).join('\n');
 
-      await navigator.clipboard.writeText(logText);
-      toast.success('Логи скопійовано! Тепер ви можете надіслати їх у Telegram.');
+      // Append the last full scan's structured transcript and its replay
+      // fixture. The fixture is the valuable half: pasted into a test it
+      // reproduces this exact car offline, so a fault reported from the road
+      // can be debugged (and regression-tested) without the car present.
+      const diag = obd.getLastScanDiagnostics?.();
+      const parts = [logText];
+      if (diag) {
+        parts.push(
+          '',
+          '='.repeat(70),
+          diag.text,
+          '',
+          '=== REPLAY FIXTURE (JSON — paste into a test to reproduce this car) ===',
+          JSON.stringify(diag.fixture),
+        );
+      }
+
+      await navigator.clipboard.writeText(parts.join('\n'));
+      toast.success(
+        diag
+          ? `Логи + транскрипт сканування (${diag.stats.commands} команд) скопійовано.`
+          : 'Логи скопійовано! Тепер ви можете надіслати їх у Telegram.'
+      );
     } catch (err) {
       console.error("Помилка експорту логів", err);
       toast.error('Не вдалося експортувати логи.');
