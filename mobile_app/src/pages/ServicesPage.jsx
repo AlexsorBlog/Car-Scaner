@@ -151,7 +151,7 @@ const OVERPASS_ENDPOINTS = [
   'https://overpass.private.coffee/api/interpreter',
 ];
 
-const OVERPASS_TIMEOUT_MS = 12000;
+const OVERPASS_TIMEOUT_MS = 8000;
 
 async function fetchNearbyShops([lat, lon], radiusM = 5000, attempt = 1) {
   const query = `
@@ -165,8 +165,12 @@ async function fetchNearbyShops([lat, lon], radiusM = 5000, attempt = 1) {
   `;
   const failures = [];
 
-  for (const endpoint of OVERPASS_ENDPOINTS) {
-    // Per-endpoint timeout, so one hung mirror can't stall the whole lookup —
+  // Race all mirrors at once instead of trying them one after another. Trying
+  // them in sequence meant a worst case of endpoints × timeout (~36s+), which
+  // reads as "infinite loading" to the user when the primary is hung. Racing
+  // makes the wait equal to the FASTEST healthy mirror — normally well under a
+  // second — and caps the failure case at a single timeout.
+  const attemptOne = async (endpoint) => {
     // fetch() has no built-in timeout and will otherwise wait indefinitely.
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), OVERPASS_TIMEOUT_MS);
@@ -193,21 +197,26 @@ async function fetchNearbyShops([lat, lon], radiusM = 5000, attempt = 1) {
         isPartner: false,
       })).filter(s => s.lat && s.lon);
     } catch (err) {
-      const reason = err.name === 'AbortError' ? `timeout >${OVERPASS_TIMEOUT_MS}ms` : err.message;
+      const reason = err.name === 'AbortError' ? `timeout >${OVERPASS_TIMEOUT_MS / 1000}s` : err.message;
       console.warn(`[Services] ${endpoint} failed: ${reason}`);
       failures.push(`${new URL(endpoint).hostname}: ${reason}`);
+      throw err;
     } finally {
       clearTimeout(timer);
     }
-  }
+  };
 
-  // Every mirror is down/unreachable. One more full pass after a pause covers
-  // the common case of a transient overload spike across the public instances.
-  if (attempt < 2) {
-    await new Promise(r => setTimeout(r, 1500));
-    return fetchNearbyShops([lat, lon], radiusM, attempt + 1);
-  }
-  {
+  try {
+    // Promise.any resolves on the first SUCCESS and only rejects if every
+    // mirror fails, which is exactly the semantics we want here.
+    return await Promise.any(OVERPASS_ENDPOINTS.map(attemptOne));
+  } catch {
+    // Every mirror failed. One short retry covers a transient overload spike,
+    // then give up rather than leaving the user on a spinner.
+    if (attempt < 2) {
+      await new Promise(r => setTimeout(r, 1200));
+      return fetchNearbyShops([lat, lon], radiusM, attempt + 1);
+    }
     const err = new Error('Сервіс карт недоступний. Спробуйте ще раз за хвилину.');
     err.detail = failures.join(' | ');
     throw err;
@@ -404,8 +413,10 @@ export default function ServicesPage() {
     // 1. Бронебійний Flex-контейнер на всю висоту екрану
     <div className="relative w-full bg-[#050505] overflow-hidden flex flex-col" style={{ height: 'var(--app-height)' }}>
 
-      {/* 2. Відступ для "чубчика" (Dynamic Island/Status Bar) */}
-      <div style={{ height: 'var(--safe-top, env(safe-area-inset-top, 0px))' }} className="w-full shrink-0 bg-[#050505]"></div>
+      {/* No safe-area spacer here — #root already insets the whole app by
+          --safe-top, and #safe-top-cover masks the status bar. Adding one here
+          double-counted the notch and left this page with a visible gap that
+          no other page had. */}
 
       {/* Головна обгортка для карти (flex-1 гарантує, що вона заповнить залишок екрану) */}
       <div className="relative flex-1 w-full z-0">
@@ -634,8 +645,8 @@ export default function ServicesPage() {
         )}
       </div>
 
-      {/* 3. Відступ для зони свайпу (Home Indicator) знизу */}
-      <div style={{ height: 'var(--safe-bottom, env(safe-area-inset-bottom, 0px))' }} className="w-full shrink-0 bg-[#050505]"></div>
+      {/* Bottom home-indicator inset also comes from #root's padding-bottom —
+          a spacer here would double it, same as the top one did. */}
     </div>
   );
 }

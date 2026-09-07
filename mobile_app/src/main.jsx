@@ -1,6 +1,13 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+// App-wide layout CSS: safe-area variables, #root scroll container, the
+// status-bar cover and the --app-height utilities. This used to be imported
+// only by DashboardPage, which is lazy-loaded — so any route reached without
+// loading that chunk (login, chat, leaderboard, public profile) rendered with
+// NO safe-area handling at all, which is why the notch behaviour differed
+// from page to page. It is global styling and belongs at the entry point.
+import './App.css'
 import App from './App.jsx'
 
 // ── Hard-block pinch/double-tap zoom on iOS — everywhere EXCEPT the Leaflet

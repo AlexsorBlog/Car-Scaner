@@ -106,6 +106,29 @@ html, body {
 .pt-safe { padding-top: var(--safe-top); }
 .pb-safe { padding-bottom: var(--safe-bottom); }
 
+/* ── Status-bar cover ───────────────────────────────────────────────────────
+   #root's padding-top makes content START below the notch, but padding does
+   NOT stop content from scrolling up through that region — and with
+   viewport-fit=cover the status bar is transparent, so scrolled text slid
+   visibly under the clock and battery.
+
+   A fixed, opaque strip pinned to the physical top of the viewport fixes that:
+   scrolled content passes UNDER it and is hidden. Height collapses to 0 on
+   devices without a top inset (Android, desktop), so it costs nothing there.
+
+   z-index sits above page content and the bottom nav (40) but below modals
+   (110+), which cover the full screen and manage their own safe area. */
+#safe-top-cover {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--safe-top);
+  background-color: #050505;
+  z-index: 100;
+  pointer-events: none;
+}
+
 /* ── Page height ────────────────────────────────────────────────────────────
    #root is the scroll container: height 100dvh, border-box, with the safe-area
    insets as PADDING. So the space a page actually gets is

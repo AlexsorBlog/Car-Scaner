@@ -7,6 +7,10 @@
     <title>mobile_app</title>
   </head>
   <body>
+    <!-- Opaque strip over the iPhone status bar. See #safe-top-cover in App.css:
+         #root's padding only sets where content STARTS, it does not stop
+         scrolled content from travelling up through that region. -->
+    <div id="safe-top-cover" aria-hidden="true"></div>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

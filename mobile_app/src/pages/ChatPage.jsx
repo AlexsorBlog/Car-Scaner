@@ -161,8 +161,8 @@ export default function ChatPage() {
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
           placeholder="Напишіть повідомлення..."
-          rows={1}
-          className="flex-1 bg-[#111318] border border-gray-800 text-white text-sm rounded-2xl px-4 py-3 outline-none focus:border-blue-500 placeholder-gray-600 resize-none max-h-32"
+          rows={2}
+          className="flex-1 bg-[#111318] border border-gray-800 text-white text-sm rounded-2xl px-4 py-3 outline-none focus:border-blue-500 placeholder-gray-600 resize-none min-h-[5.5rem] max-h-40"
         />
         <button
           onClick={handleSend}
