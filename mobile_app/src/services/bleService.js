@@ -44,7 +44,12 @@ export const TRANSPORT = {
 
 class BLEScanner {
   constructor() {
-    this._mode       = TRANSPORT.EMULATOR;
+    // Default to a real adapter. The emulator/Bluetooth switch was removed from
+    // the dashboard, so nothing in the UI selects EMULATOR any more — defaulting
+    // to it would mean a connect fired before the dashboard mounts would try the
+    // dev WebSocket bridge instead of the car. The transport is still switchable
+    // via setTransportMode() for the BluetoothTest dev screen.
+    this._mode       = TRANSPORT.NATIVE;
     this._platform   = Capacitor.getPlatform(); // 'web' | 'android' | 'ios'
     this._connected  = false;
     this._writeWithoutResponse = false;

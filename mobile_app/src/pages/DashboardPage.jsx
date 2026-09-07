@@ -1,7 +1,6 @@
 ﻿import React, { useState, useEffect, useRef } from 'react'
-import { Capacitor } from '@capacitor/core';
 import { useTelemetry } from '../context/TelemetryContext.jsx';
-import { obdScanner, TRANSPORT } from '../services/bleService.js'; 
+import { TRANSPORT } from '../services/bleService.js';
 import { obd } from '../obd/index.js';
 import { commands } from '../obd/commands.js';
 import { getRecentTelemetry, saveDiagnosticReport, getDiagnosticReports } from '../services/db.js';
@@ -137,8 +136,6 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const telemetry = useTelemetry();
   
-  const isNative = Capacitor.getPlatform() !== 'web';
-  const [useEmulator, setUseEmulator] = useState(!isNative);
   
   const [layouts, setLayouts] = useState(() => {
     const saved = localStorage.getItem('dashboardLayoutProfiles');
@@ -202,9 +199,11 @@ export default function DashboardPage() {
   const dragItem = useRef(null);
   const dragOverItem = useRef(null);
 
+  // Always talk to a real adapter — the emulator/Bluetooth switch is gone, so
+  // there is no path back into emulator mode from the UI.
   useEffect(() => {
-    telemetry.setTransportMode(isNative ? TRANSPORT.NATIVE : TRANSPORT.EMULATOR);
-  }, [isNative, telemetry]);
+    telemetry.setTransportMode(TRANSPORT.NATIVE);
+  }, [telemetry]);
 
   useEffect(() => {
     const activeSensors = layout.filter(item => item.visible).map(item => item.id);
@@ -362,13 +361,6 @@ export default function DashboardPage() {
         hasAutoJumped.current = true;
     }
   }, [dbGraphData, isGraphLoading, selectedGraph, graphZoomMs, telemetry.history]);
-
-  const toggleMode = () => {
-    if (telemetry.isConnected) return; 
-    const nextEmulator = !useEmulator;
-    setUseEmulator(nextEmulator);
-    telemetry.setTransportMode(nextEmulator ? TRANSPORT.EMULATOR : TRANSPORT.NATIVE); 
-  };
 
   const switchTab = (id) => {
     if (isEditMode) return; 
@@ -1025,12 +1017,6 @@ export default function DashboardPage() {
   return (
     <div className="p-5 flex flex-col gap-5 animate-in fade-in duration-500 bg-[#050505] text-white overflow-x-hidden pb-28">
       
-      <div className="bg-[#111318] p-1 rounded-xl border border-gray-800/80 flex relative">
-        <button onClick={toggleMode} disabled={telemetry.isConnected} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all z-10 ${useEmulator ? 'text-white' : 'text-gray-500'}`}>💻 ЕМУЛЯТОР</button>
-        <button onClick={toggleMode} disabled={telemetry.isConnected} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all z-10 ${!useEmulator ? 'text-white' : 'text-gray-500'}`}>🚗 BLUETOOTH</button>
-        <div className={`absolute top-1 bottom-1 w-[calc(50%-4px)] bg-blue-600/90 rounded-lg transition-all duration-300 ${useEmulator ? 'left-1' : 'left-[calc(50%+2px)]'}`} />
-      </div>
-
       <header className="flex justify-between items-center">
         <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${telemetry.isConnected ? 'bg-blue-500/10 border-blue-500/20' : 'bg-gray-900 border-gray-800'}`}>
           <div className={`w-1.5 h-1.5 rounded-full ${telemetry.isConnected ? 'bg-blue-500 animate-pulse' : 'bg-gray-600'}`}></div>
