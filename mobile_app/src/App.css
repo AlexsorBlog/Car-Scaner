@@ -106,6 +106,26 @@ html, body {
 .pt-safe { padding-top: var(--safe-top); }
 .pb-safe { padding-bottom: var(--safe-bottom); }
 
+/* ── Dark map tiles ─────────────────────────────────────────────────────────
+   OpenStreetMap's standard tiles are keyless and reliable but light-themed.
+   Inverting + rotating the hue turns them into a dark basemap that fits the
+   app, with no API key and no watermark (CARTO's keyless tiles now arrive
+   stamped "API KEY REQUIRED").
+
+   Applied to .leaflet-tile-pane ONLY, so markers, popups and controls keep
+   their real colours — inverting the whole map would turn the blue GPS dot
+   orange and the shop pins the wrong colour.
+
+   NOTE ON THE VALUE: this must NOT be invert(1) or invert(100%). Lightning CSS
+   minifies both down to a bare `invert()`, which left the map light — the
+   filter was being dropped rather than applied. invert(0.98) is visually
+   identical to a full inversion but keeps an explicit value through
+   minification, so the declaration survives. Verified against the compiled
+   bundle, not just the source. */
+.dark-tiles .leaflet-tile-pane {
+  filter: invert(0.98) hue-rotate(180deg) brightness(0.92) contrast(0.9) saturate(0.75);
+}
+
 /* ── Status-bar cover ───────────────────────────────────────────────────────
    #root's padding-top makes content START below the notch, but padding does
    NOT stop content from scrolling up through that region — and with

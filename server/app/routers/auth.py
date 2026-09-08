@@ -9,7 +9,7 @@ import base64
 import re
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .. import queries
 from ..auth import hash_password, require_auth, sign_token, verify_password
@@ -91,8 +91,47 @@ async def login(request: Request, body: LoginBody):
     if not verify_password(body.password, user["password_hash"]):
         raise HTTPException(401, "Invalid credentials")
 
+    # Blocked accounts must not be able to obtain a token at all — checking
+    # only at the admin guard would still let them use the rest of the app.
+    if user.get("is_blocked"):
+        raise HTTPException(403, "Акаунт заблоковано")
+
+    await queries.touch_last_seen(user["id"])
+    await queries.log_activity(user["id"], "auth.login")
+
     token = sign_token(user["id"])
     return {"token": token, "user": _safe_user(user)}
+
+
+# ── Change own password ───────────────────────────────────────────────────────
+
+class ChangePasswordBody(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=6, max_length=128)
+
+
+@router.put("/password")
+@limiter.limit("5/15minutes")
+async def change_password(request: Request, body: ChangePasswordBody,
+                          auth_user: dict = Depends(require_auth)):
+    """
+    Requires the current password even though the caller already holds a valid
+    token — a stolen/borrowed phone shouldn't be enough to lock the real owner
+    out of their account.
+    """
+    user = await queries.get_user_by_id(auth_user["id"])
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    if not verify_password(body.current_password, user["password_hash"]):
+        raise HTTPException(400, "Поточний пароль невірний")
+
+    if body.current_password == body.new_password:
+        raise HTTPException(400, "Новий пароль має відрізнятися від поточного")
+
+    await queries.admin_set_password(user["id"], hash_password(body.new_password))
+    await queries.log_activity(user["id"], "auth.password_changed")
+    return {"ok": True}
 
 
 # ── Get profile ───────────────────────────────────────────────────────────────

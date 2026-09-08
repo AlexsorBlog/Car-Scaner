@@ -88,6 +88,47 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_chat_user ON chat_messages(user_id, chat_type, created_at);
+
+-- ── Admin / moderation ──────────────────────────────────────────────────────
+-- There was previously no notion of privilege at all: every account had equal
+-- rights and there were no admin endpoints. These columns add the minimum
+-- needed to run the admin panel.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin     BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked   BOOLEAN NOT NULL DEFAULT FALSE;
+-- Touched on every authenticated request, so "who is actually using this" is
+-- answerable without keeping a session table.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
+
+-- ── API usage accounting ────────────────────────────────────────────────────
+-- OpenAI bills per token, so token spend is the number that actually matters
+-- operationally. The API returns exact counts per completion; record them
+-- rather than estimating.
+CREATE TABLE IF NOT EXISTS api_usage (
+  id                SERIAL PRIMARY KEY,
+  user_id           INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  kind              TEXT NOT NULL DEFAULT 'chat',
+  model             TEXT,
+  prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens      INTEGER NOT NULL DEFAULT 0,
+  had_image         BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_usage_user ON api_usage(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_usage_time ON api_usage(created_at);
+
+-- ── Activity log ────────────────────────────────────────────────────────────
+-- Coarse per-user activity, so the admin panel can show "global activity time"
+-- and recent actions without inferring everything from other tables.
+CREATE TABLE IF NOT EXISTS activity_log (
+  id         SERIAL PRIMARY KEY,
+  user_id    INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  action     TEXT NOT NULL,
+  detail     TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_log(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_activity_time ON activity_log(created_at);
 """
 
 

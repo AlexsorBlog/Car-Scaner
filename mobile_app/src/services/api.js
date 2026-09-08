@@ -62,6 +62,15 @@ export const api = {
     return request('PUT', '/api/auth/profile', payload);
   },
 
+  // Requires the current password even though we already hold a token — a
+  // borrowed/stolen phone shouldn't be enough to lock the owner out.
+  async changePassword({ currentPassword, newPassword }) {
+    return request('PUT', '/api/auth/password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    });
+  },
+
   async updateAvatar(imageFile) {
     const fd = new FormData();
     fd.append('avatar', imageFile);

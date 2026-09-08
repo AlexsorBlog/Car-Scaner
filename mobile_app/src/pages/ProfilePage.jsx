@@ -21,6 +21,33 @@ export default function ProfilePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [isClearingLogs, setIsClearingLogs] = useState(false);
+
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [pwCurrent, setPwCurrent] = useState('');
+  const [pwNew, setPwNew] = useState('');
+  const [pwConfirm, setPwConfirm] = useState('');
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
+
+  const handleChangePassword = async () => {
+    // Validate locally first so obvious mistakes don't cost a round trip and
+    // don't burn the endpoint's rate limit (5 per 15 min).
+    if (!pwCurrent || !pwNew) return toast.error('Заповніть усі поля');
+    if (pwNew.length < 6)     return toast.error('Новий пароль — мінімум 6 символів');
+    if (pwNew !== pwConfirm)  return toast.error('Паролі не збігаються');
+    if (pwNew === pwCurrent)  return toast.error('Новий пароль має відрізнятися від поточного');
+
+    setIsSavingPassword(true);
+    try {
+      await api.changePassword({ currentPassword: pwCurrent, newPassword: pwNew });
+      toast.success('Пароль змінено');
+      setShowPasswordForm(false);
+      setPwCurrent(''); setPwNew(''); setPwConfirm('');
+    } catch (err) {
+      toast.error(err.message || 'Не вдалося змінити пароль');
+    } finally {
+      setIsSavingPassword(false);
+    }
+  };
   const [formData, setFormData] = useState({ name: '', email: '', make: '', model: '', vin: '' });
 
   const modelsForBrand = (formData.make && carModels[formData.make]) || [];
@@ -293,6 +320,55 @@ export default function ProfilePage() {
           в буфер обміну (наприклад, для Telegram). «Очистити» — стерти журнал
           перед новою діагностикою.
         </p>
+      </div>
+
+      {/* ── Change password ── */}
+      <div>
+        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Безпека</h3>
+        {!showPasswordForm ? (
+          <button
+            onClick={() => setShowPasswordForm(true)}
+            className="w-full bg-[#111318] hover:bg-[#161922] border border-gray-800 text-gray-300 font-bold py-3.5 rounded-xl transition-all"
+          >
+            ЗМІНИТИ ПАРОЛЬ
+          </button>
+        ) : (
+          <div className="bg-[#111318] border border-gray-800 rounded-xl p-4 flex flex-col gap-3">
+            <input
+              type="password" value={pwCurrent} autoComplete="current-password"
+              onChange={(e) => setPwCurrent(e.target.value)}
+              placeholder="Поточний пароль"
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-blue-500"
+            />
+            <input
+              type="password" value={pwNew} autoComplete="new-password"
+              onChange={(e) => setPwNew(e.target.value)}
+              placeholder="Новий пароль (мін. 6 символів)"
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-blue-500"
+            />
+            <input
+              type="password" value={pwConfirm} autoComplete="new-password"
+              onChange={(e) => setPwConfirm(e.target.value)}
+              placeholder="Повторіть новий пароль"
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-blue-500"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={handleChangePassword}
+                disabled={isSavingPassword}
+                className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold py-3 rounded-lg text-sm transition-all"
+              >
+                {isSavingPassword ? 'Зберігаю…' : 'Зберегти'}
+              </button>
+              <button
+                onClick={() => { setShowPasswordForm(false); setPwCurrent(''); setPwNew(''); setPwConfirm(''); }}
+                className="px-5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 font-bold py-3 rounded-lg text-sm transition-all"
+              >
+                Скасувати
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Рейтинг + AI Асистент */}

@@ -168,6 +168,25 @@ async def post_chat(
 
         reply = completion.choices[0].message.content
 
+        # Record exact token spend from the API's own accounting rather than
+        # estimating — this is what the admin panel bills against. Never let a
+        # bookkeeping failure break the user's reply.
+        try:
+            usage = getattr(completion, "usage", None)
+            if usage:
+                await queries.record_api_usage(
+                    user_id=user_id,
+                    model=getattr(completion, "model", "gpt-4o"),
+                    prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+                    completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+                    total_tokens=getattr(usage, "total_tokens", 0) or 0,
+                    had_image=image_base64 is not None,
+                )
+            await queries.touch_last_seen(user_id)
+            await queries.log_activity(user_id, "chat.message", f"type={chat_type}")
+        except Exception as usage_err:
+            print("[usage] failed to record:", usage_err)
+
         # Save assistant reply
         await queries.insert_message(
             user_id=user_id, chat_type=chat_type, role="assistant", content=reply, content_json=None,

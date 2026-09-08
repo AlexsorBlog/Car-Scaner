@@ -2,12 +2,34 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
-import { Geolocation } from '@capacitor/geolocation';
+import { geoService, shopsCache } from '../services/geoService.js';
 import { Capacitor } from '@capacitor/core';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 const KYIV_FALLBACK = [50.4501, 30.5234];
+
+// ── Map tiles ─────────────────────────────────────────────────────────────────
+// We used to use CARTO's dark basemap. CARTO now requires an API key and serves
+// every tile stamped with a diagonal "API KEY REQUIRED — carto.com/basemaps/apikey"
+// watermark — verified by fetching a tile directly and looking at it. The map
+// still drew, which is why it looked like a rendering glitch rather than an
+// account problem, and it got more obvious when zoomed in because more tiles
+// are on screen.
+//
+// OSM's standard tiles are keyless and reliable, but light-themed, so the dark
+// styling is applied in CSS instead (.leaflet-tile-pane filter in App.css).
+//
+// To use a keyed provider later (CARTO, MapTiler, Stadia, Mapbox…), set
+// VITE_MAP_TILE_URL / VITE_MAP_TILE_ATTRIBUTION in .env — no code change, and
+// remove the CSS filter if the provider already ships a dark style.
+const TILE_URL = import.meta.env.VITE_MAP_TILE_URL
+  || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const TILE_ATTRIBUTION = import.meta.env.VITE_MAP_TILE_ATTRIBUTION
+  || '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+// When a provider supplies its own dark tiles, set VITE_MAP_TILE_DARK=preset to
+// skip the CSS inversion.
+const TILES_NEED_DARKENING = import.meta.env.VITE_MAP_TILE_DARK !== 'preset';
 
 // ── 1. NEW COMPONENT: Fix Map Sizing ──────────────────────────────────────────
 // Цей компонент вирішує проблему "чорного екрану", примусово змушуючи
@@ -265,21 +287,37 @@ export default function ServicesPage() {
   const hasFetchedInitialRef = useRef(false);
 
   // ── Load shops around a point (initial load, retry, radius expand) ──────────
-  const loadShops = useCallback(async (pos, radiusM = 5000) => {
-    setIsFetchingShops(true);
-    setShopsError(null);
-    try {
-      const found = await fetchNearbyShops(pos, radiusM);
-      const withDist = found.map(s => ({
+  const loadShops = useCallback(async (pos, radiusM = 5000, { allowCache = true } = {}) => {
+    const applyShops = (list) => {
+      const withDist = list.map(s => ({
         ...s,
         distKm: haversineKm(pos, [s.lat, s.lon]),
       })).sort((a, b) => a.distKm - b.distKm);
-
       setShops(withDist);
       if (withDist.length > 0) {
         setClosestShop(withDist[0]);
         setSelectedShop(withDist[0]);
       }
+      return withDist;
+    };
+
+    // Returning to this tab shouldn't blank the map and re-hit Overpass while
+    // the user waits — reuse a recent result for roughly the same area.
+    if (allowCache) {
+      const cached = shopsCache.get(pos, radiusM);
+      if (cached) {
+        applyShops(cached);
+        setShopsError(null);
+        return;
+      }
+    }
+
+    setIsFetchingShops(true);
+    setShopsError(null);
+    try {
+      const found = await fetchNearbyShops(pos, radiusM);
+      shopsCache.set(pos, radiusM, found);
+      applyShops(found);
     } catch (err) {
       console.error('[Services] fetchNearbyShops failed:', err);
       setShopsError(err.message || 'Не вдалося завантажити СТО');
@@ -290,58 +328,29 @@ export default function ServicesPage() {
   }, []);
 
   // ── Live location watch — dot follows the real position continuously ────────
+  // Subscribe to the app-lifetime GPS watch rather than owning one. The watch
+  // keeps running while the user is on other tabs, so coming back here renders
+  // the last known position immediately instead of restarting the whole
+  // permission + acquisition cycle. See services/geoService.js.
   useEffect(() => {
-    let cancelled = false;
-    let webWatchId = null;
-    let nativeWatchId = null;
-
-    const onFix = (lat, lon) => {
-      if (cancelled) return;
-      const pos = [lat, lon];
-      setPosition(pos);
-      setIsLocating(false);
-      setLocationError(null); // a real fix arrived — clear any earlier fallback warning
-      if (isFollowingRef.current) setMapCenter(pos);
-    };
-
-    const applyFallbackLocation = () => {
-      if (cancelled) return;
-      setLocationError('Не вдалось визначити локацію');
-      setPosition(KYIV_FALLBACK);
-      setMapCenter(KYIV_FALLBACK);
-      setIsLocating(false);
-    };
-
-    (async () => {
-      if (Capacitor.isNativePlatform()) {
-        try {
-          const perm = await Geolocation.requestPermissions();
-          if (perm.location !== 'granted' && perm.coarseLocation !== 'granted') {
-            throw new Error('Дозвіл відхилено');
-          }
-          nativeWatchId = await Geolocation.watchPosition({ enableHighAccuracy: true }, (pos, err) => {
-            if (err) { console.warn('[Services] geolocation watch error:', err); return; }
-            if (pos) onFix(pos.coords.latitude, pos.coords.longitude);
-          });
-        } catch {
-          applyFallbackLocation();
-        }
-      } else if (navigator.geolocation) {
-        webWatchId = navigator.geolocation.watchPosition(
-          p => onFix(p.coords.latitude, p.coords.longitude),
-          applyFallbackLocation,
-          { enableHighAccuracy: true }
-        );
-      } else {
-        applyFallbackLocation();
+    const unsubscribe = geoService.subscribe(({ position: pos, error }) => {
+      if (pos) {
+        setPosition(pos);
+        setIsLocating(false);
+        setLocationError(null);
+        if (isFollowingRef.current) setMapCenter(pos);
+      } else if (error) {
+        // Only fall back to a placeholder if we have never had a real fix —
+        // a transient error must not throw away a good position.
+        setLocationError(error);
+        setPosition((prev) => prev ?? KYIV_FALLBACK);
+        setMapCenter((prev) => prev ?? KYIV_FALLBACK);
+        setIsLocating(false);
       }
-    })();
-
-    return () => {
-      cancelled = true;
-      if (webWatchId != null) navigator.geolocation.clearWatch(webWatchId);
-      if (nativeWatchId != null) Geolocation.clearWatch({ id: nativeWatchId }).catch(() => {});
-    };
+    });
+    geoService.start();
+    // Deliberately does NOT stop the watch — that's the whole point.
+    return unsubscribe;
   }, []);
 
   // ── Fetch shops once, on the first position fix only — further fetches
@@ -428,14 +437,16 @@ export default function ServicesPage() {
               center={position}
               zoom={14}
               zoomControl={false}
+              className={TILES_NEED_DARKENING ? 'dark-tiles' : undefined}
               style={{ height: '100%', width: '100%', background: '#050505' }}
             >
               {/* Примусовий ререндер розміру карти для мобільних */}
               <FixMapRender />
 
               <TileLayer
-                attribution='© <a href="https://carto.com/attributions">CARTO</a>'
-                url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
+                attribution={TILE_ATTRIBUTION}
+                url={TILE_URL}
+                maxZoom={19}
               />
 
               {/* User dot */}

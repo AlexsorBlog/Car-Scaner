@@ -14,18 +14,34 @@ load_dotenv()
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from .db import close_db, init_db
 from .rate_limit import limiter
-from .routers import auth, chat, perf, summary
+from .routers import admin, auth, chat, perf, summary
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+
+    # Promote the phones listed in ADMIN_PHONES (comma-separated) to admin.
+    # This is the ONLY route to privilege — there is deliberately no self-serve
+    # way to become an admin, so the first one must come from server config.
+    admin_phones = [p.strip() for p in os.environ.get("ADMIN_PHONES", "").split(",") if p.strip()]
+    if admin_phones:
+        from . import queries
+        try:
+            promoted = await queries.bootstrap_admins(admin_phones)
+            print(f"[admin] promoted: {promoted or 'none matched'}")
+            missing = set(admin_phones) - set(promoted)
+            if missing:
+                print(f"[admin] NOT FOUND (register these accounts first): {sorted(missing)}")
+        except Exception as err:
+            print("[admin] bootstrap failed:", err)
+
     yield
     await close_db()
 
@@ -103,6 +119,20 @@ app.include_router(auth.router, prefix="/api/auth")
 app.include_router(perf.router, prefix="/api/perf")
 app.include_router(summary.router, prefix="/api/summary")
 app.include_router(chat.router, prefix="/api/chat")
+app.include_router(admin.router, prefix="/api/admin")
+
+
+# ── Admin panel page ─────────────────────────────────────────────────────────
+# Served from the API itself so it lives on the same origin as the endpoints it
+# calls — no CORS, no separate deploy, no extra hosting. It is a plain static
+# file with no secrets in it: all access is gated by the admin JWT the page
+# obtains at login, enforced server-side on every /api/admin/* call.
+_ADMIN_PAGE = os.path.join(os.path.dirname(__file__), "static", "admin.html")
+
+
+@app.get("/admin", include_in_schema=False)
+async def admin_page():
+    return FileResponse(_ADMIN_PAGE, media_type="text/html")
 
 
 # ── Health check ──────────────────────────────────────────────────────────────

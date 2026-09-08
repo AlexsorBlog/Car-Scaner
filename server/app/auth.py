@@ -41,3 +41,28 @@ async def require_auth(authorization: str | None = Header(default=None)) -> dict
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     return payload
+
+
+async def require_admin(authorization: str | None = Header(default=None)) -> dict:
+    """
+    Admin guard for /api/admin/*.
+
+    Deliberately re-reads the user row on every request rather than trusting an
+    is_admin claim baked into the JWT: tokens live for 90 days, so a revoked
+    admin would otherwise keep full access for months. Blocked accounts are
+    rejected here too.
+    """
+    payload = await require_auth(authorization)
+
+    # Imported here, not at module top, to avoid a circular import
+    # (queries -> db -> ... -> auth).
+    from . import queries
+
+    user = await queries.get_user_by_id(payload["id"])
+    if not user:
+        raise HTTPException(status_code=401, detail="User no longer exists")
+    if user.get("is_blocked"):
+        raise HTTPException(status_code=403, detail="Account blocked")
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
