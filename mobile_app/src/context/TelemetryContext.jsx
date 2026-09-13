@@ -28,6 +28,7 @@ import {
 import { api } from '../services/api.js';
 import { toast } from '../components/ui/Toast.jsx';
 import dtcDictionary from '../obd/codes.json';
+import { normalizeScanCodes } from '../obd/normalizeScanCodes.js';
 
 const VIN_RE = /^[A-HJ-NPR-Z0-9]{17}$/; // standard VIN: 17 chars, no I/O/Q
 
@@ -385,91 +386,12 @@ export function TelemetryProvider({ children }) {
         toast.error(w);
       }
 
-      const finalErrors = result.codes
-        // ── 1. Structural validity only ────────────────────────────────────
-        // This used to drop every code missing from the local dictionary,
-        // which silently discarded exactly the manufacturer-specific codes
-        // (P1xxx/B1xxx/U1xxx) that a brand like Mercedes stores its thermostat
-        // and charging faults under. A code the ECU reports is real whether or
-        // not we happen to have a description for it — show it, and label it.
-        .filter(codeItem => {
-          const base = codeItem.base || codeItem.code;
-          const ok = /^[PCBU][0-3][0-9A-F]{3}$/.test(base);
-          if (!ok) console.log(`[DTC] Dropping structurally invalid: ${base}`);
-          return ok;
-        })
-        // ── 2. Deduplicate — keep highest-priority source per base code ────
-        .reduce((acc, codeItem) => {
-          const existing = acc.find(e => e.base === codeItem.base);
-          if (!existing) {
-            acc.push(codeItem);
-          } else {
-            // Priority: lower number = higher priority
-            // Names must match what index.js sets in method.name
-            const PRIORITY = {
-              'Mode 03':    0,
-              'Mode UDS 09': 1,
-              'Mode UDS 08': 1,
-              'Mode UDS 01': 1,
-              'Mode UDS 04': 1,
-              'Mode 07':    2,
-              'Mode 0A':    3,
-              'KWP 00':     4,
-              'KWP FF':     4,
-            };
-            const newP  = PRIORITY[codeItem.variant] ?? 99;
-            const exstP = PRIORITY[existing.variant]  ?? 99;
-            if (newP < exstP) {
-              const idx = acc.indexOf(existing);
-              acc[idx]  = codeItem;
-            }
-          }
-          return acc;
-        }, [])
-        // ── 3. Map to final shape ─────────────────────────────────────────
-        .map(codeItem => {
-          const baseCode = codeItem.base;
-          const v        = codeItem.variant ?? '';
-
-          /**
-           * Protocol-level status takes precedence over UDS status byte:
-           *   Mode 03  → confirmed active in ECU memory       → 'active'
-           *   Mode UDS → use status byte bitmask (ISO 14229-1)
-           *   Mode 07  → pending (failed this drive cycle)    → 'pending'
-           *   Mode 0A  → permanent (survives Mode 04 clear)   → 'historic'
-           *   KWP      → treat same as Mode 03                → 'active'
-           */
-          let statusCategory;
-          if (codeItem.statusCategory) {
-            // Full scan already derived this from the UDS status byte / mode.
-            statusCategory = codeItem.statusCategory;
-          } else if (v.includes('Mode 07')) {
-            statusCategory = 'pending';
-          } else if (v.includes('Mode 0A')) {
-            statusCategory = 'historic';
-          } else if (v.includes('Mode 03') || v.includes('KWP')) {
-            statusCategory = 'active';
-          } else {
-            // UDS — use statusByte bitmask
-            statusCategory = _dtcStatusCategory(codeItem.statusByte ?? null);
-          }
-
-          const isKnown = !!dtcDictionary[baseCode];
-          return {
-            code:           codeItem.code,
-            title:          isKnown ? codeItem.title : `Код виробника ${baseCode}`,
-            desc:           codeItem.ecu
-              ? `${codeItem.ecu} · ${codeItem.variant || result.variant}`
-              : `Протокол: ${codeItem.variant || result.variant}`,
-            severity:       _classifyDtcSeverity(baseCode),
-            cost:           _estimateDtcCost(baseCode),
-            statusCategory,
-            statusByte:     codeItem.statusByte ?? null,
-            ecu:            codeItem.ecu ?? null,
-            ecuAddress:     codeItem.ecuAddress ?? null,
-            isManufacturerCode: !isKnown,
-          };
-        });
+      // Filter → dedupe → final shape. Lives in obd/normalizeScanCodes.js so the
+      // end-to-end test can drive the exact stage the user sees (see
+      // __tests__/endToEnd.test.mjs); inline here, it was untestable.
+      const finalErrors = normalizeScanCodes(
+        result.codes, dtcDictionary, result.variant, (msg) => console.log(msg),
+      );
 
       // Debug
       const counts = finalErrors.reduce((acc, e) => {
@@ -614,36 +536,5 @@ export function useTelemetry() {
   return ctx;
 }
 
-// ── DTC helpers ───────────────────────────────────────────────────────────────
-
-function _classifyDtcSeverity(code) {
-  if (!code) return 'Невідомо';
-  const prefix = code.substring(0, 3);
-  if (prefix === 'P03') return 'Високий';
-  if (prefix === 'P01' || prefix === 'P02') return 'Середній';
-  return 'Низький';
-}
-
-/**
- * ISO 14229-1 §D.3 DTC Status Byte bitmask:
- *  Bit 0 (0x01) testFailed           — currently failing  → active
- *  Bit 3 (0x08) confirmedDTC         — confirmed in memory → active
- *  Bit 2 (0x04) pendingDTC           — failed this cycle  → pending
- *  All others without 0/3/2          → historic
- */
-function _dtcStatusCategory(statusByte) {
-  if (statusByte === null || statusByte === undefined) return 'active';
-  if (statusByte & 0x01) return 'active';   // bit 0: test currently failing
-  if (statusByte & 0x08) return 'active';   // bit 3: confirmed DTC
-  if (statusByte & 0x04) return 'pending';  // bit 2: pending DTC
-  return 'historic';
-}
-
-function _estimateDtcCost(code) {
-  if (!code) return 'Невідомо';
-  const prefix = code.substring(0, 3);
-  if (prefix === 'P03') return '₴1500 – ₴5000';
-  if (prefix === 'P02') return '₴500 – ₴3000';
-  if (prefix === 'P01') return '₴300 – ₴2000';
-  return '₴200 – ₴1500';
-}
+// DTC helpers (severity, cost, status bucketing) moved to
+// obd/normalizeScanCodes.js — see the note on finalErrors above.

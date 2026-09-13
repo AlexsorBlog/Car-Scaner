@@ -1,6 +1,7 @@
 import React from 'react';
 import { DragyStyleChart } from './DragyStyleChart.jsx';
 import { formatPerfTime, getMilestoneTime, getMilestoneDistance } from './perfHelpers.js';
+import { useScrollLock } from '../../hooks/useScrollLock.js';
 
 /**
  * components/perf/PerfRunDetailModal.jsx
@@ -18,6 +19,9 @@ import { formatPerfTime, getMilestoneTime, getMilestoneDistance } from './perfHe
  */
 export default function PerfRunDetailModal({ timestamp, timeMs, telemetry, filterKey, onClose }) {
   const runData = telemetry || [];
+  // This component only exists while the modal is open, so the lock is
+  // unconditional — it releases on unmount.
+  useScrollLock(true);
 
   return (
     <div className="fixed inset-0 z-[130] bg-black/80 backdrop-blur-md flex items-end md:items-center justify-center animate-in fade-in p-4 pt-safe">

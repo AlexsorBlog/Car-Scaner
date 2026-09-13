@@ -73,9 +73,13 @@ function makeSimulatedCar({ sessionRequired = true, headersOn = false } = {}) {
       if (/^ATCRA/.test(cmd)) return 'OK';
 
       const hdr = state.header;
+      // ISO-TP Single Frame: one byte of PCI, high nibble 0 = SF, low nibble =
+      // payload length. `len` is already two hex digits, so it IS the whole PCI
+      // byte — prefixing another 0 would emit a 3-digit PCI that no real adapter
+      // produces (the car logs read "7E8 07 5902FF05970027").
       const wrap = (respAddr, payload) => {
         const len = (payload.length / 2).toString(16).toUpperCase().padStart(2, '0');
-        return state.headers ? `${respAddr} 0${len} ${payload}` : payload;
+        return state.headers ? `${respAddr} ${len} ${payload}` : payload;
       };
 
       // Supported-PIDs handshake. Functional address → every module answers.
@@ -141,7 +145,12 @@ check('status byte 0x09 decodes as confirmed + testFailed',
   st.confirmed && st.testFailed && st.category === 'active');
 const stPending = parseDtcStatusByte(0x04);
 check('status byte 0x04 decodes as pending, not confirmed',
-  stPending.pending && !stPending.confirmed && stPending.category === 'pending');
+  stPending.pending && !stPending.confirmed && stPending.category === 'active');
+// A code that is failing right now but not yet confirmed (e.g. the test car's
+// thermostat at 0x27) is still an active fault — see parseDtcStatusByte.
+const stArchive = parseDtcStatusByte(0x20);
+check('status byte 0x20 (failed since clear, not failing now) is archived',
+  stArchive.testFailedSinceClear && stArchive.category === 'historic');
 check('status bit constants match ISO 14229-1 (confirmed = 0x08)',
   DTC_STATUS_BITS.CONFIRMED_DTC === 0x08 && DTC_STATUS_BITS.WARNING_INDICATOR_REQUESTED === 0x80);
 

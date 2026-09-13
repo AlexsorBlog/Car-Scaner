@@ -6,9 +6,12 @@
  */
 
 import { useTelemetry } from '../../context/TelemetryContext.jsx';
+import { useScrollLock } from '../../hooks/useScrollLock.js';
 
 export default function ConfirmModal() {
   const { confirmState } = useTelemetry();
+  // Before the early return — hooks must run on every render.
+  useScrollLock(!!confirmState);
   if (!confirmState) return null;
 
   const { message, onConfirm, onCancel } = confirmState;

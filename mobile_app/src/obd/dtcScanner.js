@@ -393,20 +393,34 @@ export function decodeMode06Results(hex) {
 export function parseDtcStatusByte(byte) {
   if (byte == null || isNaN(byte)) return null;
   const has = (bit) => (byte & bit) !== 0;
-  const confirmed = has(DTC_STATUS_BITS.CONFIRMED_DTC);
-  const pending   = has(DTC_STATUS_BITS.PENDING_DTC);
+  const confirmed           = has(DTC_STATUS_BITS.CONFIRMED_DTC);
+  const pending             = has(DTC_STATUS_BITS.PENDING_DTC);
+  const testFailed          = has(DTC_STATUS_BITS.TEST_FAILED);
+  const testFailedThisCycle = has(DTC_STATUS_BITS.TEST_FAILED_THIS_OPERATION_CYCLE);
   return {
     raw: byte,
-    testFailed:            has(DTC_STATUS_BITS.TEST_FAILED),
-    testFailedThisCycle:   has(DTC_STATUS_BITS.TEST_FAILED_THIS_OPERATION_CYCLE),
+    testFailed,
+    testFailedThisCycle,
     pending,
     confirmed,
     testNotCompletedSinceClear: has(DTC_STATUS_BITS.TEST_NOT_COMPLETED_SINCE_LAST_CLEAR),
     testFailedSinceClear:  has(DTC_STATUS_BITS.TEST_FAILED_SINCE_LAST_CLEAR),
     testNotCompletedThisCycle: has(DTC_STATUS_BITS.TEST_NOT_COMPLETED_THIS_OPERATION_CYCLE),
     warningIndicator:      has(DTC_STATUS_BITS.WARNING_INDICATOR_REQUESTED),
-    // Matches the categories the UI already renders.
-    category: confirmed ? 'active' : pending ? 'pending' : 'historic',
+    // Two buckets, matching what the UI renders and what a driver can act on:
+    // either the fault is happening now, or it is history.
+    //
+    // "Currently failing" deliberately includes testFailed/testFailedThisCycle,
+    // not just confirmedDTC. A real example: the thermostat on the test car
+    // reports 0x27 — failing right now, failed this cycle, pending — but the ECM
+    // has not set the confirmed bit yet (that needs more drive cycles before the
+    // lamp lights). Treating that as merely "pending" understated a fault the
+    // driver could feel, so anything actively failing counts as active; only
+    // codes with no current-failure bit at all (e.g. 0x20, failed some time
+    // since the last clear) fall through to the archive.
+    category: (confirmed || pending || testFailed || testFailedThisCycle)
+      ? 'active'
+      : 'historic',
   };
 }
 
@@ -430,27 +444,89 @@ export function decodeDtcBytes(byteA, byteB) {
 export function splitByEcuHeader(raw) {
   if (!raw) return {};
   const out = {};
-  for (const line of raw.split(/[\r\n]+/)) {
+  const expected = {};  // header -> total payload length (hex chars) from the First Frame
+
+  for (const line of String(raw).split(/[\r\n]+/)) {
     const clean = line.replace(/[>\s]/g, '').toUpperCase();
-    if (!clean || /^(OK|SEARCHING|BUS|STOPPED|NODATA|ERROR|UNABLE|CANERROR)/.test(clean)) continue;
+    if (!clean || /^(OK|SEARCHING|BUS|STOPPED|NODATA|ERROR|UNABLE|CANERROR|BUFFERFULL)/.test(clean)) continue;
 
-    // 29-bit header is 8 hex chars, 11-bit is 3.
-    let header = null, body = clean;
-    if (/^18DA[0-9A-F]{4}/.test(clean)) { header = clean.substring(0, 8); body = clean.substring(8); }
-    else if (/^[0-9A-F]{3}/.test(clean) && clean.length > 3) { header = clean.substring(0, 3); body = clean.substring(3); }
-    if (!header) continue;
+    // Walk frames sequentially rather than assuming one frame per line. Real
+    // adapters return a whole multi-frame reply as ONE unbroken string:
+    //
+    //   7E8119F5902FF008792 7E821401CE365401CE4 7E8229A40219C774021 ...
+    //    ^hdr ^FF len=0x19F   ^hdr ^CF#1          ^hdr ^CF#2
+    //
+    // The previous version only stripped a PCI from the START of each line, so
+    // every embedded "7E821"/"7E822" stayed in the payload and got decoded as
+    // DTC bytes. That is where the phantom codes came from — C07E8, P07E8,
+    // B07EB, C247E and friends are literally CAN ids plus frame counters.
+    let i = 0;
+    while (i < clean.length) {
+      // 29-bit header is 8 hex chars, 11-bit is 3.
+      let header;
+      if (/^18DA[0-9A-F]{4}/.test(clean.slice(i)))      { header = clean.substr(i, 8); i += 8; }
+      else if (/^[0-9A-F]{3}/.test(clean.slice(i)))     { header = clean.substr(i, 3); i += 3; }
+      else break;
 
-    // Drop the ISO-TP PCI. Single frame = 0X (X = length). First frame = 1XXX.
-    // Consecutive frame = 2X — its payload continues the previous block.
-    const pci = body.substring(0, 1);
-    if (pci === '0')      body = body.substring(2);
-    else if (pci === '1') body = body.substring(4);
-    else if (pci === '2') body = body.substring(2);
-    else if (pci === '3') continue; // flow control frame, carries no payload
-
-    out[header] = (out[header] || '') + body;
+      const type = clean[i];
+      if (type === '0') {
+        // Single frame: 0L followed by L payload bytes (rest of frame is padding).
+        const n = parseInt(clean[i + 1], 16);
+        i += 2;
+        if (isNaN(n)) break;
+        out[header] = (out[header] || '') + clean.substr(i, n * 2);
+        i += n * 2;
+      } else if (type === '1') {
+        // First frame: 1LLL (12-bit total length) followed by 6 payload bytes.
+        const total = parseInt(clean.substr(i + 1, 3), 16);
+        i += 4;
+        if (isNaN(total)) break;
+        expected[header] = total * 2;
+        out[header] = (out[header] || '') + clean.substr(i, 12);
+        i += 12;
+      } else if (type === '2') {
+        // Consecutive frame: 2N followed by up to 7 payload bytes. The final
+        // one is padded, so clamp to the length the First Frame promised —
+        // otherwise trailing pad bytes become fake DTC records.
+        i += 2;
+        const remaining = expected[header] != null
+          ? expected[header] - (out[header] || '').length
+          : 14;
+        out[header] = (out[header] || '') + clean.substr(i, Math.max(0, Math.min(14, remaining)));
+        i += 14;
+      } else if (type === '3') {
+        i += 6;   // flow control — carries no payload
+      } else break;
+    }
   }
   return out;
+}
+
+// ── Which status bytes count as a fault ─────────────────────────────────────
+// ISO 14229-1 status bits. The distinction matters enormously: a status-mask
+// query with mask 0xFF matches TEST_NOT_COMPLETED too, which is set on nearly
+// every DTC the ECU merely *supports*. That is how a scan turned 1 real fault
+// into ~145 "errors" — the ECU was faithfully listing its whole catalogue.
+export const ACTIVE_FAULT_BITS =
+  DTC_STATUS_BITS.TEST_FAILED |
+  DTC_STATUS_BITS.TEST_FAILED_THIS_OPERATION_CYCLE |
+  DTC_STATUS_BITS.PENDING_DTC |
+  DTC_STATUS_BITS.CONFIRMED_DTC;
+
+/** Currently (or this drive cycle) failing — a fault worth alarming about. */
+export function isActiveFault(statusByte) {
+  if (statusByte == null || isNaN(statusByte)) return false;
+  return (statusByte & ACTIVE_FAULT_BITS) !== 0;
+}
+
+/**
+ * Worth showing at all: actively failing, OR failed at some point since the
+ * last clear (historic). Anything else — "test not completed", pure padding —
+ * is the ECU describing a code it knows about, not one that has ever tripped.
+ */
+export function isReportableFault(statusByte) {
+  if (statusByte == null || isNaN(statusByte)) return false;
+  return (statusByte & (ACTIVE_FAULT_BITS | DTC_STATUS_BITS.TEST_FAILED_SINCE_LAST_CLEAR)) !== 0;
 }
 
 /** True when a payload is a UDS negative response, with the NRC extracted. */

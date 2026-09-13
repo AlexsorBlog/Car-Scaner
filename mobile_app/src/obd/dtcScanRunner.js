@@ -45,6 +45,7 @@ import {
   decodeFreezeFrameDtc,
   decodeUdsDtcCount,
   decodeMode06Results,
+  isReportableFault,
 } from './dtcScanner.js';
 import { DiagnosticLog } from './diagnosticLog.js';
 
@@ -379,16 +380,30 @@ export class DtcScanRunner {
       }
     }
 
+    // ── Which 0x19 sub-functions actually report FAULTS ──────────────────────
+    // Measured against a real Mercedes capture (claude/logs.txt, 2026-09-10),
+    // where the car had exactly ONE real fault (P0597, thermostat):
+    //
+    //   1902FF  mask 0xFF -> 103 records   the ECU's whole DTC catalogue
+    //   190A    supported ->  23 records   catalogue by definition
+    //   190FFF  mask 0xFF ->  12 records   catalogue again, mirror memory
+    //   190E    most recent-> contaminated with the previous reply's tail
+    //   190204  mask 0x04 ->   1 record    P0597  <-- the real fault
+    //   190208  mask 0x08 ->   0 records   correctly empty
+    //
+    // Mask 0xFF matches TEST_NOT_COMPLETED, which is set on virtually every
+    // supported code, so "all" means "everything this ECU can name" — not
+    // "everything currently wrong". Those queries produced the ~145 phantom
+    // errors. Only failure-indicating masks are requested now.
+    //
+    // 190A is still useful as a capability probe, but its output must never be
+    // treated as faults, so it is simply not asked for here.
     const subFunctions = [
-      { sub: DTC_REPORT.DTC_BY_STATUS_MASK, mask: 'FF', label: 'UDS 1902FF (all)' },
       { sub: DTC_REPORT.DTC_BY_STATUS_MASK, mask: '08', label: 'UDS 190208 (confirmed)' },
       { sub: DTC_REPORT.DTC_BY_STATUS_MASK, mask: '04', label: 'UDS 190204 (pending)' },
+      { sub: DTC_REPORT.DTC_BY_STATUS_MASK, mask: '01', label: 'UDS 190201 (test failed)' },
       { sub: DTC_REPORT.DTC_BY_STATUS_MASK, mask: '2F', label: 'UDS 19022F (failed/stored)' },
       { sub: DTC_REPORT.DTC_WITH_PERMANENT_STATUS, mask: null, label: 'UDS 1915 (permanent)' },
-      { sub: DTC_REPORT.MIRROR_MEMORY_DTC_BY_STATUS_MASK, mask: 'FF', label: 'UDS 190FFF (mirror)' },
-      { sub: DTC_REPORT.EMISSIONS_RELATED_OBD_DTC_BY_STATUS_MASK, mask: 'FF', label: 'UDS 1913FF (emissions)' },
-      { sub: DTC_REPORT.SUPPORTED_DTC, mask: null, label: 'UDS 190A (supported)' },
-      { sub: DTC_REPORT.MOST_RECENT_CONFIRMED_DTC, mask: null, label: 'UDS 190E (most recent)' },
     ];
 
     // Modules that don't implement 0x19 at all reject the very first
@@ -423,6 +438,14 @@ export class DtcScanRunner {
           continue;
         }
         for (const d of decodeUdsDtcResponse(payload, sub)) {
+          // Defence in depth behind the narrowed sub-function list: even a
+          // failure-masked query can return records whose status byte says the
+          // monitor merely hasn't run. Those are not faults, and reporting them
+          // is what buried one real code under ~145 phantom ones.
+          if (!isReportableFault(d.statusByte)) {
+            this._log(`[scan] ${ecu.request} ${d.code}: status 0x${(d.statusByte ?? 0).toString(16).padStart(2, '0')} is not a fault — skipped`);
+            continue;
+          }
           out.push({
             ...d,
             // Keep the failure-type byte visible (P0128-00) — it distinguishes

@@ -14,7 +14,11 @@
     "test:fuel": "node src/obd/__tests__/fuelRate.test.mjs",
     "test:scanner": "node src/obd/__tests__/dtcScanner.test.mjs",
     "test:log": "node src/obd/__tests__/diagnosticLog.test.mjs",
-    "test": "npm run test:dtc && npm run test:vin && npm run test:reallog && npm run test:fuel && npm run test:scanner && npm run test:log"
+    "test": "npm run test:dtc && npm run test:vin && npm run test:reallog && npm run test:fuel && npm run test:scanner && npm run test:log && npm run test:falsepos && npm run test:e2e && npm run test:graph && npm run test:scrolllock",
+    "test:falsepos": "node src/obd/__tests__/falsePositives.test.mjs",
+    "test:e2e": "node src/obd/__tests__/endToEnd.test.mjs",
+    "test:graph": "node src/obd/__tests__/graphSeries.test.mjs",
+    "test:scrolllock": "node src/utils/__tests__/scrollLock.test.mjs"
   },
   "dependencies": {
     "@capacitor-community/bluetooth-le": "^8.1.3",

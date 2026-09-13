@@ -10,6 +10,11 @@ import { DragyStyleChart } from '../components/perf/DragyStyleChart.jsx';
 import PerfRunDetailModal from '../components/perf/PerfRunDetailModal.jsx';
 import { formatPerfTime, getMilestoneTime, getMilestoneDistance } from '../components/perf/perfHelpers.js';
 import { lphToL100km } from '../obd/fuelRate.js';
+import {
+  yAxisFor, svgYFor, toL100kmSeries, findNeighborPoint, panOffsetCentering,
+  formatPointDate, WINDOW_PRESETS, DEFAULT_WINDOW_MS, loadWindowMs, saveWindowMs,
+} from '../obd/graphSeries.js';
+import { useScrollLock } from '../hooks/useScrollLock.js';
 import HideIcon from '../assets/hide.svg';
 import ShowIcon from '../assets/show.svg';
 import SpeedIcon from '../assets/speedometer.svg';
@@ -55,7 +60,7 @@ const get24hData = (dataArray) => {
   return dataArray.filter(d => d.t >= cutoff);
 };
 
-const MiniGraph = ({ data, color, label, unit, onClick }) => {
+const MiniGraph = ({ data, color, label, unit, metricId, onClick }) => {
   const gradId = `mg-${label.replace(/\s/g,'')}`
 
   if (!data || data.length === 0) return (
@@ -68,24 +73,24 @@ const MiniGraph = ({ data, color, label, unit, onClick }) => {
   )
 
   const values  = data.map(d => d.v)
-  const rawMax  = Math.max(...values)
-  const rawMin  = Math.min(...values)
-  const vr      = rawMax - rawMin === 0 ? 10 : rawMax - rawMin
-  const max     = rawMax + vr * 0.12
-  const min     = rawMin - vr * 0.12
-  const range   = max - min
+  // Fixed axis for this metric. It used to be derived from the visible points,
+  // which meant the line kept the same shape while the numbers behind it
+  // changed — two readings of the same value drew at different heights.
+  const axis    = yAxisFor(metricId || label)
   const last    = values[values.length - 1]
   const prev    = values[values.length - 2] ?? last
   const trend   = last > prev ? '↑' : last < prev ? '↓' : '→'
   const trendCl = last > prev ? 'text-green-400' : last < prev ? 'text-red-400' : 'text-gray-500'
 
+  const yOf = (v) => svgYFor(v, axis)
+
   const pts = data.map((d, i) =>
-    `${(i/(data.length-1))*100},${100-((d.v-min)/range)*100}`
+    `${(i/(data.length-1))*100},${yOf(d.v)}`
   ).join(' ')
 
   // Last point coords for the dot
   const lastX = 100
-  const lastY = 100 - ((last - min) / range) * 100
+  const lastY = yOf(last)
 
   return (
     <div onClick={onClick}
@@ -122,10 +127,11 @@ const MiniGraph = ({ data, color, label, unit, onClick }) => {
         </svg>
       </div>
 
-      {/* Min / max hint */}
+      {/* Lowest / highest reading in view. Display only — the axis itself is
+          fixed (see yAxisFor), so these numbers never affect the drawing. */}
       <div className="flex justify-between mt-1">
-        <span className="text-[7px] text-gray-700 font-mono">{Math.round(rawMin)}</span>
-        <span className="text-[7px] text-gray-700 font-mono">{Math.round(rawMax)}</span>
+        <span className="text-[7px] text-gray-700 font-mono">{Math.round(Math.min(...values))}</span>
+        <span className="text-[7px] text-gray-700 font-mono">{Math.round(Math.max(...values))}</span>
       </div>
     </div>
   )
@@ -156,16 +162,21 @@ export default function DashboardPage() {
   const [dbGraphData, setDbGraphData] = useState([]);
   const [isGraphLoading, setIsGraphLoading] = useState(false);
   const [panOffsetMs, setPanOffsetMs] = useState(0); 
-  const [graphZoomMs, setGraphZoomMs] = useState(10 * 60 * 1000); 
+  // Fixed 5s default, then whatever this graph was last set to. Restored per
+  // graph when one is opened (see the selectedGraph effect).
+  const [graphZoomMs, setGraphZoomMs] = useState(DEFAULT_WINDOW_MS); 
   const touchStartX = useRef(null);
+  // Which way the last swipe went, so swiping off the end of the recording can
+  // jump to the nearest data in THAT direction rather than guessing.
+  const swipeDirection = useRef('past');
+  // Set when we auto-jump, so the user is told which moment they are looking at.
+  const [jumpNotice, setJumpNotice] = useState(null);
   const hasAutoJumped = useRef(false);
   const [showMainGraph, setShowMainGraph] = useState(true);
 
-  const [graphZoomActive, setGraphZoomActive] = useState(false);
-  const pinchStartDist  = useRef(null);
-  const pinchStartZoom  = useRef(null);
-  const pinchStartPan   = useRef(null);
-  const pinchCenterPct  = useRef(null);
+  // Pinch-to-zoom is gone on purpose: it changed the time scale mid-swipe, so
+  // the graph rescaled under your finger. The window is now only ever changed
+  // by tapping one of the preset buttons.
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
@@ -177,6 +188,12 @@ export default function DashboardPage() {
   const [showErrorHistoryModal, setShowErrorHistoryModal] = useState(false);
 
   const [showArchive, setShowArchive] = useState(false);
+
+  // Any open overlay freezes the dashboard behind it, so swiping a graph or
+  // scrolling a modal can't drag the page around underneath.
+  useScrollLock(
+    !!selectedGraph || showAnalysisModal || showErrorHistoryModal || !!selectedPerfRecord,
+  );
 
   const [perfState, setPerfState] = useState('idle'); 
   const [perfTime, setPerfTime] = useState(0);
@@ -317,6 +334,10 @@ export default function DashboardPage() {
        hasAutoJumped.current = false;
        return;
     }
+
+    // Restore the window this graph was last viewed at (5s until changed).
+    setGraphZoomMs(loadWindowMs(selectedGraph.id, localStorage));
+    setJumpNotice(null);
     
     let isActive = true;
     const loadData = async () => {
@@ -328,9 +349,16 @@ export default function DashboardPage() {
       
       const dbField = GRAPH_KEY_MAP[selectedGraph.id] || selectedGraph.id.toLowerCase();
 
-      const formatted = history
-          .filter(d => d[dbField] !== undefined && d[dbField] !== null)
-          .map(d => ({ t: d.timestamp, v: d[dbField] }));
+      // Fuel rows are stored in л/год — convert against the speed recorded on
+      // the same rows so the archive reads in л/100км like everything else.
+      const formatted = selectedGraph.id === 'FUEL_RATE'
+        ? toL100kmSeries(
+            history.filter(d => d.fuel != null).map(d => ({ t: d.timestamp, v: d.fuel })),
+            history.filter(d => d.speed != null).map(d => ({ t: d.timestamp, v: d.speed })),
+          )
+        : history
+            .filter(d => d[dbField] !== undefined && d[dbField] !== null)
+            .map(d => ({ t: d.timestamp, v: d[dbField] }));
       
       setDbGraphData(formatted);
       setIsGraphLoading(false);
@@ -360,6 +388,15 @@ export default function DashboardPage() {
         hasAutoJumped.current = true;
     }
   }, [dbGraphData, isGraphLoading, selectedGraph, graphZoomMs, telemetry.history]);
+
+  // Fuel history in driver units. Stored as л/год (well-defined at idle), shown
+  // as л/100км, which needs the speed at each sample — so the two histories are
+  // paired here. Samples taken while stopped have no per-distance value and are
+  // dropped rather than drawn as a spike.
+  const fuelL100History = toL100kmSeries(
+    get24hData(telemetry.history.fuel),
+    get24hData(telemetry.history.speed),
+  );
 
   const switchTab = (id) => {
     if (isEditMode) return; 
@@ -514,12 +551,17 @@ export default function DashboardPage() {
           setPanOffsetMs(Math.max(0, currentCenterOffset - (newZoomMs / 2)));
       }
       setGraphZoomMs(newZoomMs);
+      // Remember it for this graph — reopening it should not snap back.
+      if (selectedGraph?.id) saveWindowMs(selectedGraph.id, newZoomMs, localStorage);
   };
 
   const renderDetailedGraph = () => {
     if (!selectedGraph) return null;
     
-    const liveData = telemetry.history[GRAPH_KEY_MAP[selectedGraph.id] || selectedGraph.id.toLowerCase()] || [];
+    // Fuel is the one metric whose stored unit is not its displayed unit.
+    const liveData = selectedGraph.id === 'FUEL_RATE'
+      ? toL100kmSeries(telemetry.history.fuel || [], telemetry.history.speed || [])
+      : (telemetry.history[GRAPH_KEY_MAP[selectedGraph.id] || selectedGraph.id.toLowerCase()] || []);
     const dataMap = new Map();
     dbGraphData.forEach(d => dataMap.set(d.t, d.v));
     liveData.forEach(d => dataMap.set(d.t, d.v));
@@ -535,12 +577,32 @@ export default function DashboardPage() {
       .filter(d => d.t >= viewStartTime && d.t <= viewEndTime)
       .sort((a, b) => a.t - b.t);
 
+    const allPoints = Array.from(dataMap.entries())
+      .map(([t, v]) => ({ t, v }))
+      .sort((a, b) => a.t - b.t);
+
     const jumpToLastActivity = () => {
-       const allData = Array.from(dataMap.entries()).sort((a, b) => a[0] - b[0]);
-       if (allData.length > 0) {
-          const lastPointTime = allData[allData.length - 1][0];
-          setPanOffsetMs(Math.max(0, now - lastPointTime - (graphZoomMs * 0.2)));
-       }
+       if (allPoints.length > 0) jumpToPoint(allPoints[allPoints.length - 1]);
+    };
+
+    const jumpToPoint = (point) => {
+      if (!point) return;
+      setPanOffsetMs(panOffsetCentering(point.t, WINDOW_MS, Date.now()));
+      setJumpNotice({ t: point.t });
+    };
+
+    /**
+     * Swiping past the end of the recording lands on an empty grid, which tells
+     * the user nothing. Instead, jump to the nearest real data in the direction
+     * they were already swiping and label the moment they landed on.
+     * @returns {boolean} true if there was somewhere to go
+     */
+    const jumpToNearestData = (direction) => {
+      const anchor = direction === 'past' ? viewStartTime : viewEndTime;
+      const target = findNeighborPoint(allPoints, anchor, direction);
+      if (!target) return false;
+      jumpToPoint(target);
+      return true;
     };
 
     const formatTimeAxis = (time) => {
@@ -560,26 +622,15 @@ export default function DashboardPage() {
       );
     }
 
-    // ── Y-axis: smart "nice" tick calculation ────────────────────────────────
-    let max = 100, min = 0, MathRange = 100;
-    let yTicks = [0, 25, 50, 75, 100]; // defaults
-
-    if (visibleData.length > 0) {
-      const values   = visibleData.map(d => d.v);
-      const rawMax   = Math.max(...values);
-      const rawMin   = Math.min(...values);
-      const rawRange = rawMax - rawMin === 0 ? 10 : rawMax - rawMin;
-
-      // Round to a "nice" step so axis labels are clean numbers
-      const roughStep = rawRange / 4;
-      const mag   = Math.pow(10, Math.floor(Math.log10(roughStep)));
-      const step  = Math.ceil(roughStep / mag) * mag;
-
-      min       = Math.floor(rawMin / step) * step;
-      max       = min + step * 5;
-      MathRange = max - min;
-      yTicks    = [0, 1, 2, 3, 4, 5].map(i => min + i * step);
-    }
+    // ── Y-axis: FIXED per metric ─────────────────────────────────────────────
+    // Previously recomputed from whatever was visible, so panning re-scaled the
+    // axis under your finger. The axis now belongs to the metric, not to the
+    // window, and nothing here reads visibleData.
+    const axis = yAxisFor(selectedGraph.id);
+    const min = axis.min;
+    const MathRange = axis.range;
+    const yTicks = axis.ticks;
+    const yOf = (v) => svgYFor(v, axis);
 
     // ── Data decimation: cap visible points to ~300 so zoomed-out view
     //    doesn't render thousands of overlapping polyline segments ─────────────
@@ -606,66 +657,40 @@ export default function DashboardPage() {
       segments.push(currentSegment);
     }
     
+    // Pan only — a swipe moves through time and never changes the scale.
     const handleTouchStart = (e) => {
-      if (e.touches.length === 2) {
-        // Pinch start
-        const t1 = e.touches[0], t2 = e.touches[1];
-        pinchStartDist.current  = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
-        pinchStartZoom.current  = graphZoomMs;
-        pinchStartPan.current   = panOffsetMs;
-        const rect = e.currentTarget.getBoundingClientRect();
-        pinchCenterPct.current  = ((t1.clientX + t2.clientX) / 2 - rect.left) / rect.width;
-        touchStartX.current     = null; // disable pan while pinching
-      } else if (e.touches.length === 1) {
-        touchStartX.current = e.touches[0].clientX;
-      }
+      if (e.touches.length === 1) touchStartX.current = e.touches[0].clientX;
     };
 
     const handleTouchMove = (e) => {
-      if (e.touches.length === 2 && pinchStartDist.current) {
-        // Pinch zoom
-        const t1 = e.touches[0], t2 = e.touches[1];
-        const currentDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
-        const scale = pinchStartDist.current / currentDist; // inverse: pinch in = zoom in (smaller window)
-
-        const MIN_ZOOM = 30 * 1000;          // 30 seconds minimum
-        const MAX_ZOOM = 7 * 24 * 3600 * 1000; // 7 days maximum
-        const newZoom  = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinchStartZoom.current * scale));
-
-        // Keep the pinch center point fixed while zooming
-        const viewEndBefore  = Date.now() - pinchStartPan.current;
-        const viewStartBefore = viewEndBefore - pinchStartZoom.current;
-        const anchorTime     = viewStartBefore + pinchCenterPct.current * pinchStartZoom.current;
-        const newPanOffset   = Math.max(0, Date.now() - anchorTime - newZoom * (1 - pinchCenterPct.current));
-
-        setGraphZoomMs(newZoom);
-        setPanOffsetMs(newPanOffset);
-
-      } else if (e.touches.length === 1 && touchStartX.current !== null) {
-        // Pan
-        const currentX  = e.touches[0].clientX;
-        const diffPixels = currentX - touchStartX.current;
-        const msPerPixel = graphZoomMs / window.innerWidth;
-        setPanOffsetMs(prev => Math.max(0, prev - diffPixels * msPerPixel));
-        touchStartX.current = currentX;
+      if (e.touches.length !== 1 || touchStartX.current === null) return;
+      const currentX   = e.touches[0].clientX;
+      const diffPixels = currentX - touchStartX.current;
+      if (diffPixels !== 0) {
+        // Dragging the graph to the right pulls older data into view.
+        swipeDirection.current = diffPixels > 0 ? 'past' : 'future';
       }
+      const msPerPixel = graphZoomMs / window.innerWidth;
+      setPanOffsetMs(prev => Math.max(0, prev - diffPixels * msPerPixel));
+      touchStartX.current = currentX;
     };
 
     const handleTouchEnd = (e) => {
-      if (e.touches.length < 2) pinchStartDist.current = null;
-      if (e.touches.length === 0) touchStartX.current = null;
+      if (e.touches.length > 0) return;
+      touchStartX.current = null;
+      // Swiped off the end of the recording? Go to where the data actually is,
+      // in the direction they were heading, instead of sitting on empty grid.
+      if (visibleData.length === 0) {
+        jumpToNearestData(swipeDirection.current);
+      } else {
+        setJumpNotice(null);
+      }
     };
 
     return (
       <div className="flex flex-col relative w-full h-full min-h-[350px]">
         <div className="flex gap-2 mb-2 justify-center flex-wrap items-center">
-            {[
-                { label: '1 хв', ms: 60 * 1000 },
-                { label: '5 ХВ', ms: 5 * 60 * 1000 },
-                { label: '30 ХВ', ms: 30 * 60 * 1000 },
-                { label: '24 ГОД', ms: 24 * 60 * 60 * 1000 },
-                { label: '7 ДНІВ', ms: 7 * 24 * 60 * 60 * 1000 }
-            ].map(zoom => (
+            {WINDOW_PRESETS.map(zoom => (
                 <button
                     key={zoom.label}
                     onClick={() => handleZoomChange(zoom.ms)}
@@ -693,7 +718,7 @@ export default function DashboardPage() {
             </div>
           </div>
           {panOffsetMs > 0 && (
-             <button onClick={() => setPanOffsetMs(0)} className="bg-blue-600/20 text-blue-400 border border-blue-500/50 px-3 py-1 rounded-lg text-xs font-bold animate-pulse">
+             <button onClick={() => { setPanOffsetMs(0); setJumpNotice(null); }} className="bg-blue-600/20 text-blue-400 border border-blue-500/50 px-3 py-1 rounded-lg text-xs font-bold animate-pulse">
                ДО "ЗАРАЗ"
              </button>
           )}
@@ -750,7 +775,7 @@ export default function DashboardPage() {
             {segments[0] && segments[0].length > 1 && (() => {
               const fillPts = segments[0].map(d => {
                 const x = ((d.t - viewStartTime) / WINDOW_MS) * 100;
-                const y = 100 - (((d.v - min) / MathRange) * 100);
+                const y = yOf(d.v);
                 return `${x},${y}`;
               }).join(' ');
               const firstX = ((segments[0][0].t - viewStartTime) / WINDOW_MS) * 100;
@@ -763,7 +788,7 @@ export default function DashboardPage() {
               if (seg.length <= 1) return null;
               const pts = seg.map(d => {
                 const x = ((d.t - viewStartTime) / WINDOW_MS) * 100;
-                const y = 100 - (((d.v - min) / MathRange) * 100);
+                const y = yOf(d.v);
                 return `${x},${y}`;
               }).join(' ');
               return (
@@ -776,7 +801,7 @@ export default function DashboardPage() {
             {renderData.length > 0 && (() => {
               const last = renderData[renderData.length - 1];
               const x = ((last.t - viewStartTime) / WINDOW_MS) * 100;
-              const y = 100 - (((last.v - min) / MathRange) * 100);
+              const y = yOf(last.v);
               if (x < 0 || x > 100) return null;
               return (
                 <>
@@ -790,8 +815,8 @@ export default function DashboardPage() {
           {visibleData.length === 0 && (
              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                 <span className="text-gray-500 text-xs font-bold mb-2">Немає даних</span>
-                {panOffsetMs > 0 ? (
-                   <span className="text-[9px] text-gray-600">Свайпайте далі або натисніть «ДО ЗАРАЗ»</span>
+                {allPoints.length > 0 ? (
+                   <span className="text-[9px] text-gray-600">Відпустіть — перейдемо до найближчих даних</span>
                 ) : (
                    <span className="text-[9px] text-gray-600">Очікування підключення або змініть масштаб</span>
                 )}
@@ -806,13 +831,44 @@ export default function DashboardPage() {
             <span>{formatTimeAxis(viewEndTime)}</span>
         </div>
 
-        {visibleData.length === 0 && dataMap.size > 0 && (
-           <div className="mt-4 flex justify-center">
-              <button onClick={jumpToLastActivity} className="text-gray-300 text-xs bg-gray-800 px-4 py-2 rounded-lg border border-gray-700 shadow-md">
-                 Перейти до останньої поїздки
-              </button>
-           </div>
-        )}
+        {/* Where the nearest data actually is, either side of the empty view. */}
+        {allPoints.length > 0 && (() => {
+          const prev = findNeighborPoint(allPoints, viewStartTime, 'past');
+          const next = findNeighborPoint(allPoints, viewEndTime, 'future');
+          if (visibleData.length > 0 && !jumpNotice) return null;
+          return (
+            <div className="mt-3 flex flex-col items-center gap-2">
+              {jumpNotice && (
+                <span className="text-[10px] text-gray-400">
+                  Показано дані від <span className="text-gray-200 font-bold">{formatPointDate(jumpNotice.t)}</span>
+                </span>
+              )}
+              <div className="flex justify-center gap-2">
+                <button
+                  onClick={() => jumpToPoint(prev)}
+                  disabled={!prev}
+                  className={`text-xs px-3 py-2 rounded-lg border shadow-md ${prev
+                    ? 'text-gray-300 bg-gray-800 border-gray-700'
+                    : 'text-gray-600 bg-gray-900 border-gray-800 opacity-40'}`}>
+                  ← {prev ? formatPointDate(prev.t) : 'немає раніше'}
+                </button>
+                <button
+                  onClick={() => jumpToPoint(next)}
+                  disabled={!next}
+                  className={`text-xs px-3 py-2 rounded-lg border shadow-md ${next
+                    ? 'text-gray-300 bg-gray-800 border-gray-700'
+                    : 'text-gray-600 bg-gray-900 border-gray-800 opacity-40'}`}>
+                  {next ? formatPointDate(next.t) : 'немає пізніше'} →
+                </button>
+              </div>
+              {visibleData.length === 0 && (
+                <button onClick={jumpToLastActivity} className="text-gray-400 text-[10px] underline">
+                  до останньої поїздки
+                </button>
+              )}
+            </div>
+          );
+        })()}
       </div>
     );
   };
@@ -1085,10 +1141,13 @@ export default function DashboardPage() {
           <span className="text-[9px] bg-gray-800 px-2 py-1 rounded text-gray-500 uppercase tracking-widest">БД Графіки</span>
         </h3>
         <div className="grid grid-cols-2 gap-3">
-          <MiniGraph data={get24hData(telemetry.history.speed)} color="#60a5fa" label="ШВИДКІСТЬ" unit="км/год" onClick={() => setSelectedGraph({ id: 'SPEED', label: 'Швидкість', color: '#60a5fa', unit: 'км/год' })} />
-          <MiniGraph data={get24hData(telemetry.history.fuel)} color="#f472b6" label="ВИТРАТА, Л/ГОД" unit="л/год" onClick={() => setSelectedGraph({ id: 'FUEL_RATE', label: 'Витрата палива (л/год)', color: '#f472b6', unit: 'л/год' })} />
-          <MiniGraph data={get24hData(telemetry.history.rpm)} color="#a78bfa" label="ОБЕРТИ" unit="rpm" onClick={() => setSelectedGraph({ id: 'RPM', label: 'Оберти', color: '#a78bfa', unit: 'rpm' })} />
-          <MiniGraph data={get24hData(telemetry.history.temp)} color="#34d399" label="ТЕМПЕРАТУРА" unit="°C" onClick={() => setSelectedGraph({ id: 'COOLANT_TEMP', label: 'Температура', color: '#34d399', unit: '°C' })} />
+          <MiniGraph data={get24hData(telemetry.history.speed)} metricId="SPEED" color="#60a5fa" label="ШВИДКІСТЬ" unit="км/год" onClick={() => setSelectedGraph({ id: 'SPEED', label: 'Швидкість', color: '#60a5fa', unit: 'км/год' })} />
+          {/* Fuel history is stored in л/год; the driver-facing number is
+              л/100км, so it is converted against the speed history here — the
+              same unit the fuel tile and the detailed graph show. */}
+          <MiniGraph data={fuelL100History} metricId="FUEL_RATE" color="#f472b6" label="ВИТРАТА, Л/100КМ" unit="л/100км" onClick={() => setSelectedGraph({ id: 'FUEL_RATE', label: 'Витрата палива (л/100км)', color: '#f472b6', unit: 'л/100км' })} />
+          <MiniGraph data={get24hData(telemetry.history.rpm)} metricId="RPM" color="#a78bfa" label="ОБЕРТИ" unit="rpm" onClick={() => setSelectedGraph({ id: 'RPM', label: 'Оберти', color: '#a78bfa', unit: 'rpm' })} />
+          <MiniGraph data={get24hData(telemetry.history.temp)} metricId="COOLANT_TEMP" color="#34d399" label="ТЕМПЕРАТУРА" unit="°C" onClick={() => setSelectedGraph({ id: 'COOLANT_TEMP', label: 'Температура', color: '#34d399', unit: '°C' })} />
         </div>
       </div>
 

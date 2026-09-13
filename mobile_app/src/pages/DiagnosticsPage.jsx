@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTelemetry } from '../context/TelemetryContext.jsx';
 import { getDiagnosticReports } from '../services/db.js';
+import { useScrollLock } from '../hooks/useScrollLock.js';
 
 export default function DiagnosticsPage() {
   const telemetry = useTelemetry();
@@ -18,6 +19,9 @@ export default function DiagnosticsPage() {
   // States для історії (Архіву)
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [errorHistory, setErrorHistory] = useState([]);
+
+  // Freeze the list behind an open error card / archive sheet.
+  useScrollLock(!!selectedError || showHistoryModal);
 
   // Отримуємо помилку з роутингу (якщо перейшли з дашборду)
   useEffect(() => {
