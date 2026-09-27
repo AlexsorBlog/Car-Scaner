@@ -189,17 +189,21 @@ export default function DashboardPage() {
 
   const [showArchive, setShowArchive] = useState(false);
 
-  // Any open overlay freezes the dashboard behind it, so swiping a graph or
-  // scrolling a modal can't drag the page around underneath.
-  useScrollLock(
-    !!selectedGraph || showAnalysisModal || showErrorHistoryModal || !!selectedPerfRecord,
-  );
-
   const [perfState, setPerfState] = useState('idle'); 
   const [perfTime, setPerfTime] = useState(0);
   const [perfRecords, setPerfRecords] = useState([]);
   const [perfFilter, setPerfFilter] = useState('0-100'); 
   const [selectedPerfRecord, setSelectedPerfRecord] = useState(null); 
+
+  // Any open overlay freezes the dashboard behind it, so swiping a graph or
+  // scrolling a modal can't drag the page around underneath.
+  // MUST stay below every piece of state it reads: `const` bindings sit in the
+  // temporal dead zone until their line runs, so calling this above
+  // selectedPerfRecord threw a ReferenceError on every render — a black screen
+  // on the phone that the build and the test suite both passed straight over.
+  useScrollLock(
+    !!selectedGraph || showAnalysisModal || showErrorHistoryModal || !!selectedPerfRecord,
+  );
 
   const [tripDistance, setTripDistance] = useState(() => Number(localStorage.getItem('obd_trip_distance')) || 0);
   const lastSpeedTime = useRef(Date.now());
@@ -581,14 +585,14 @@ export default function DashboardPage() {
       .map(([t, v]) => ({ t, v }))
       .sort((a, b) => a.t - b.t);
 
-    const jumpToLastActivity = () => {
-       if (allPoints.length > 0) jumpToPoint(allPoints[allPoints.length - 1]);
-    };
-
     const jumpToPoint = (point) => {
       if (!point) return;
       setPanOffsetMs(panOffsetCentering(point.t, WINDOW_MS, Date.now()));
       setJumpNotice({ t: point.t });
+    };
+
+    const jumpToLastActivity = () => {
+       if (allPoints.length > 0) jumpToPoint(allPoints[allPoints.length - 1]);
     };
 
     /**

@@ -24,6 +24,13 @@ export default defineConfig([
     },
     rules: {
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      // Reading a `const`/`let` above its declaration is a runtime
+      // ReferenceError (temporal dead zone), not a style issue. A hook call
+      // placed above the useState it read shipped a black screen to a phone
+      // while the build and the whole test suite passed — this is the check
+      // that catches that class of bug. Functions are hoisted, so they are
+      // exempt; variables are not.
+      'no-use-before-define': ['error', { variables: true, functions: false, classes: false }],
     },
   },
 ])
