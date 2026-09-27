@@ -46,6 +46,7 @@ class GeoService {
     this.position = [lat, lon];
     this.error = null;        // a real fix supersedes any earlier failure
     this.lastFixAt = Date.now();
+    persistLastPosition(lat, lon);
     this._emit();
   }
 
@@ -124,29 +125,39 @@ class GeoService {
 export const geoService = new GeoService();
 
 /**
- * Shops cache, kept for the same reason as the position: returning to the map
- * shouldn't re-hit Overpass and show an empty map while it loads. Keyed by a
- * coarse position so a genuinely different area still triggers a fresh query.
+ * Last known position, persisted.
+ *
+ * The in-memory position above survives tab switches but not an app restart, so
+ * every cold start began with no idea where the user was. Writing it down lets
+ * the app warm the shops cache at launch (services/shops.js prefetchShops)
+ * WITHOUT starting GPS — which matters because starting GPS would trigger the
+ * location permission prompt on launch.
+ *
+ * Deliberately coarse and time-limited: a week-old position is not worth acting
+ * on, and a rounded one is enough to warm a 5km search.
  */
-export const shopsCache = {
-  key: null,
-  shops: [],
-  fetchedAt: 0,
-  keyFor([lat, lon], radiusM) {
-    // ~1km granularity — moving a couple of streets reuses the cache, driving
-    // to another district does not.
-    return `${lat.toFixed(2)},${lon.toFixed(2)}@${radiusM}`;
-  },
-  get(pos, radiusM, maxAgeMs = 5 * 60 * 1000) {
-    if (!pos) return null;
-    if (this.key !== this.keyFor(pos, radiusM)) return null;
-    if (Date.now() - this.fetchedAt > maxAgeMs) return null;
-    return this.shops;
-  },
-  set(pos, radiusM, shops) {
-    if (!pos) return;
-    this.key = this.keyFor(pos, radiusM);
-    this.shops = shops;
-    this.fetchedAt = Date.now();
-  },
-};
+const LAST_POS_KEY = 'carsense_last_position';
+const LAST_POS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function persistLastPosition(lat, lon) {
+  try {
+    localStorage.setItem(LAST_POS_KEY, JSON.stringify({ lat, lon, ts: Date.now() }));
+  } catch {
+    // Storage unavailable — prefetching is an optimisation, not a requirement.
+  }
+}
+
+/** @returns {[number,number]|null} live fix if we have one, else a recent stored one. */
+export function getLastKnownPosition() {
+  if (geoService.position) return geoService.position;
+  try {
+    const raw = localStorage.getItem(LAST_POS_KEY);
+    if (!raw) return null;
+    const { lat, lon, ts } = JSON.parse(raw);
+    if (typeof lat !== 'number' || typeof lon !== 'number') return null;
+    if (!ts || Date.now() - ts > LAST_POS_MAX_AGE_MS) return null;
+    return [lat, lon];
+  } catch {
+    return null;
+  }
+}

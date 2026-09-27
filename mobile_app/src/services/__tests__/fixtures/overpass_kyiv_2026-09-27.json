@@ -1,0 +1,624 @@
+{
+ "version": 0.6,
+ "generator": "Overpass API 0.7.62.11 87bfad18",
+ "elements": [
+  {
+   "type": "node",
+   "id": 633356255,
+   "lat": 50.416382,
+   "lon": 30.5183051,
+   "tags": {
+    "email": "bogenko@atl.ua",
+    "name": "АТЛ Автомагазин",
+    "name:uk": "АТЛ Автомагазин",
+    "opening_hours": "Mo-Fr 09:00-20:00; Sa 9:00-18:00; Su 10:00-18:00",
+    "phone": "+380 44 200 1467;+380 44 200 1468",
+    "shop": "car_parts",
+    "website": "https://atl.ua/network/kiev/ul-kazimira-malevicha-bozhenko-86-v-71"
+   }
+  },
+  {
+   "type": "node",
+   "id": 636869234,
+   "lat": 50.417912,
+   "lon": 30.51727,
+   "tags": {
+    "addr:housenumber": "86",
+    "addr:street": "вулиця Казимира Малевича",
+    "name": "База Автозвуку",
+    "name:uk": "База Автозвуку",
+    "opening_hours": "Mo-Fr 09:00-20:00; Sa 10:00-19:00; Su 10:00-18:00",
+    "phone": "+380 44 495 5115",
+    "shop": "car_parts"
+   }
+  },
+  {
+   "type": "node",
+   "id": 891509516,
+   "lat": 50.4109336,
+   "lon": 30.51931,
+   "tags": {
+    "addr:housenumber": "18",
+    "addr:street": "вулиця Миколи Грінченка",
+    "internet_access": "wlan",
+    "name": "Сервіс Renault Авто-Мотив ЛТД",
+    "name:uk": "Сервіс Renault Авто-Мотив ЛТД",
+    "opening_hours": "Mo-Sa 08:00-20:00",
+    "phone": "+380 44 495 8820",
+    "shop": "car",
+    "website": "http://www.auto-motive.com.ua",
+    "wheelchair": "no"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1942452260,
+   "lat": 50.4229467,
+   "lon": 30.5537051,
+   "tags": {
+    "amenity": "car_wash",
+    "automated": "no",
+    "name": "GT2",
+    "note": "compressed_air та toilets треба позначити окремими точками",
+    "phone": "+380 67 408 4502",
+    "self_service": "no"
+   }
+  },
+  {
+   "type": "node",
+   "id": 2374941665,
+   "lat": 50.4074476,
+   "lon": 30.5013075,
+   "tags": {
+    "addr:housenumber": "126-Г",
+    "addr:street": "проспект Валерія Лобановського",
+    "email": "krz@atl.ua",
+    "name": "АТЛ Автомагазин",
+    "name:uk": "АТЛ Автомагазин",
+    "opening_hours": "Mo-Fr 09:00-20:00; Sa 09:00-18:00; Su 10:00-18:00",
+    "phone": "+380 44 527 9792;+380 44 527 9755",
+    "shop": "car_parts",
+    "website": "https://atl.ua/network/kiev/pr-lobanovskogo-krasnozvezdniy-126-g-74"
+   }
+  },
+  {
+   "type": "node",
+   "id": 2616349962,
+   "lat": 50.41244,
+   "lon": 30.5148924,
+   "tags": {
+    "addr:housenumber": "6",
+    "addr:street": "Ізюмська вулиця",
+    "amenity": "car_wash",
+    "name": "Мойка",
+    "name:uk": "Мойка",
+    "phone": "+380 44 221 8371"
+   }
+  },
+  {
+   "type": "node",
+   "id": 3305617153,
+   "lat": 50.4647757,
+   "lon": 30.5095195,
+   "tags": {
+    "addr:housenumber": "15",
+    "addr:street": "вулиця Нижній Вал",
+    "check_date": "2025-09-05",
+    "currency:UAH": "yes",
+    "email": "podol@atl.ua",
+    "level": "0",
+    "name": "АТЛ",
+    "name:uk": "АТЛ",
+    "opening_hours": "Mo-Fr 09:00-20:00; Sa 09:00-18:00; Su 10:00-18:00",
+    "payment:cash": "yes",
+    "payment:mastercard": "yes",
+    "payment:visa": "yes",
+    "phone": "+380 63 822 0392;+380 44 458 7878",
+    "second_hand": "no",
+    "shop": "car_parts",
+    "website": "https://atl.ua/network/kiev/ul-nizhniy-val-15-110"
+   }
+  },
+  {
+   "type": "node",
+   "id": 3842225048,
+   "lat": 50.445212,
+   "lon": 30.4768728,
+   "tags": {
+    "addr:housenumber": "7",
+    "addr:postcode": "03168",
+    "addr:street": "Уманська вулиця",
+    "brand": "Vianor",
+    "brand:wikidata": "Q10714920",
+    "brand:wikipedia": "sv:Vianor",
+    "email": "office@vianor.in.ua",
+    "fax": "+380 97 941 4902",
+    "int_name": "Vianor",
+    "internet_access": "wlan",
+    "name": "Vianor",
+    "name:ru": "Вианор",
+    "name:uk": "Віанор",
+    "opening_hours": "24/7",
+    "operator": "Vianor",
+    "payment:cash": "yes",
+    "payment:wire_transfer": "yes",
+    "phone": "+380 98 823 8663",
+    "service:vehicle:alignment": "yes",
+    "service:vehicle:tyres": "yes",
+    "service:vehicle:wheels": "yes",
+    "shop": "tyres",
+    "start_date": "01/03/2010",
+    "website": "https://vianor.ua/"
+   }
+  },
+  {
+   "type": "node",
+   "id": 3879095827,
+   "lat": 50.4807299,
+   "lon": 30.4926357,
+   "tags": {
+    "addr:housenumber": "4-А",
+    "addr:street": "Новокостянтинівська вулиця",
+    "name": "ЗС Авто Груп",
+    "name:uk": "ЗС Авто Груп",
+    "opening_hours": "Mo-Sa 8:00-22:00",
+    "phone": "+380 44 501 5321",
+    "shop": "car_repair",
+    "website": "http://www.z-s.kiev.ua/Default.aspx"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4068235770,
+   "lat": 50.4120249,
+   "lon": 30.5171005,
+   "tags": {
+    "description": "запчасти Ленд и Рендж Ровер",
+    "name": "LR-PARTS.com.ua",
+    "name:uk": "LR-PARTS.com.ua",
+    "opening_hours": "Mo-Fr 9:00-18:00; Sa 9:00-15:00",
+    "phone": "+380 50 462 9201",
+    "shop": "car_parts",
+    "website": "https://lr-parts.com.ua/"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4123695293,
+   "lat": 50.4122085,
+   "lon": 30.5171511,
+   "tags": {
+    "description": "Запчасти Porsche",
+    "name": "Panamera.kiev.ua",
+    "name:uk": "Panamera.kiev.ua",
+    "opening_hours": "Mo-Fr 9:00-18:00; Sa 9:00-15:00",
+    "phone": "+380 50 040 0192",
+    "shop": "car_parts"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4191580431,
+   "lat": 50.4363334,
+   "lon": 30.495131,
+   "tags": {
+    "addr:housenumber": "63",
+    "addr:street": "вулиця Гетьмана Павла Скоропадського",
+    "internet_access": "wlan",
+    "opening_hours": "Mo-Fr 10:00-18:00",
+    "phone": "+380 67 489 6787",
+    "shop": "car_repair",
+    "website": "www.gasitaly.kiev.ua"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4193412932,
+   "lat": 50.4760623,
+   "lon": 30.5072613,
+   "tags": {
+    "addr:housenumber": "8",
+    "addr:street": "Набережно-Лугова вулиця",
+    "check_date": "2025-11-17",
+    "fuel:lpg": "yes",
+    "name": "Час газу",
+    "name:ru": "Время газа",
+    "name:uk": "Час газу",
+    "opening_hours": "Mo-Fr 09:00-18:00",
+    "phone": "+380 44 353 05 05",
+    "service:vehicle:lpg": "yes",
+    "shop": "car_repair",
+    "website": "https://gaz-time.ua"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4210183589,
+   "lat": 50.4336199,
+   "lon": 30.4778619,
+   "tags": {
+    "description": "Полный комплекс работ.",
+    "name": "Альфа-сервіс",
+    "name:uk": "Альфа-сервіс",
+    "opening_hours": "Mo-Fr 10:00-19:00",
+    "phone": "+380 67 249 5870",
+    "shop": "car_repair"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4275769641,
+   "lat": 50.4623238,
+   "lon": 30.4924364,
+   "tags": {
+    "addr:housenumber": "28",
+    "addr:postcode": "04050",
+    "addr:street": "Глибочицька вулиця",
+    "description": "Автомобільні стартери і генератори — діагностика і ремонт.",
+    "name": "Bendiks",
+    "phone": "+380 44 221 3774",
+    "shop": "car_repair",
+    "survey:date": "2020-07-21",
+    "website": "https://bendiks.com.ua/"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4304623594,
+   "lat": 50.4191464,
+   "lon": 30.5541249,
+   "tags": {
+    "addr:housenumber": "31-37",
+    "addr:street": "Болсуновська вулиця",
+    "amenity": "car_wash",
+    "internet_access": "wlan",
+    "name": "Маестро-спорт",
+    "name:en": "Maestro-sport",
+    "name:uk": "Маестро-спорт",
+    "opening_hours": "24/7",
+    "phone": "+380 44 286 6042"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4304701489,
+   "lat": 50.4191849,
+   "lon": 30.5541394,
+   "tags": {
+    "addr:housenumber": "31-37",
+    "addr:street": "Болсуновська вулиця",
+    "internet_access": "wlan",
+    "name": "Шиномонтаж \"Маестро-спорт\"",
+    "name:uk": "Шиномонтаж \"Маестро-спорт\"",
+    "opening_hours": "Mo-Su 08:00-20:00",
+    "phone": "+380 44 286 6042",
+    "shop": "car_repair"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4413659992,
+   "lat": 50.4875967,
+   "lon": 30.5160523,
+   "tags": {
+    "addr:housenumber": "28",
+    "addr:street": "проспект Степана Бандери",
+    "email": "ital_moto_servis@ukr.net",
+    "name": "Мотосервіс Мотогруп",
+    "name:uk": "Мотосервіс Мотогруп",
+    "opening_hours": "Mo-Fr 09:00-18:00",
+    "phone": "+380 67 238 6200",
+    "shop": "car_repair",
+    "website": "http://moto-group.com.ua/servis/"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4458669238,
+   "lat": 50.444524,
+   "lon": 30.4929374,
+   "tags": {
+    "check_date": "2025-11-03",
+    "email": "zhylianska@atl.ua",
+    "name": "АТЛ Автомагазин",
+    "name:uk": "АТЛ Автомагазин",
+    "opening_hours": "Mo-Fr 09:00-20:00; Sa 09:00-18:00; Su 10:00-18:00",
+    "phone": "+380 44 227 1576",
+    "shop": "car_parts",
+    "website": "https://atl.ua/network/kiev/ul-zhilyanskaya-107-117"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4511558089,
+   "lat": 50.4128498,
+   "lon": 30.5183855,
+   "tags": {
+    "description": "запчасти для авто американского рынка",
+    "email": "Valtis11@gmail.com",
+    "name": "Автоклондайк-ЮА",
+    "name:ru": "Автоклондайк-ЮА",
+    "name:uk": "Автоклондайк-ЮА",
+    "opening_hours": "Mo-Sa 09:00-19:00",
+    "operator": "Автоклондайк-UA",
+    "phone": "+380 97 242 1188",
+    "shop": "car_parts"
+   }
+  },
+  {
+   "type": "node",
+   "id": 331817895,
+   "lat": 50.437842,
+   "lon": 30.5359091,
+   "tags": {
+    "name": "Тойота Україна",
+    "name:en": "Toyota Ukraine",
+    "name:ru": "Тойота Украина",
+    "name:uk": "Тойота Україна",
+    "shop": "car"
+   }
+  },
+  {
+   "type": "node",
+   "id": 345837219,
+   "lat": 50.4766159,
+   "lon": 30.4965082,
+   "tags": {
+    "amenity": "car_wash"
+   }
+  },
+  {
+   "type": "node",
+   "id": 504912279,
+   "lat": 50.4377459,
+   "lon": 30.5270197,
+   "tags": {
+    "brand": "BMW",
+    "brand:wikidata": "Q26678",
+    "brand:wikipedia": "en:BMW",
+    "name": "BMW, Rolls Royce",
+    "shop": "car"
+   }
+  },
+  {
+   "type": "node",
+   "id": 541638520,
+   "lat": 50.4358056,
+   "lon": 30.5385248,
+   "tags": {
+    "name": "Шиномонтаж",
+    "name:uk": "Шиномонтаж",
+    "shop": "car_repair"
+   }
+  },
+  {
+   "type": "node",
+   "id": 881829570,
+   "lat": 50.4161179,
+   "lon": 30.5198053,
+   "tags": {
+    "service:vehicle:tyres": "yes",
+    "shop": "car_repair"
+   }
+  },
+  {
+   "type": "node",
+   "id": 891516312,
+   "lat": 50.4334821,
+   "lon": 30.5049954,
+   "tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1143680189,
+   "lat": 50.4146321,
+   "lon": 30.5198338,
+   "tags": {
+    "addr:housenumber": "86-О",
+    "addr:street": "вулиця Казимира Малевича",
+    "amenity": "car_wash",
+    "description": "65 uah - washing, 130 uah - complex washing"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1170153236,
+   "lat": 50.4435703,
+   "lon": 30.4539706,
+   "tags": {
+    "name": "Автомийка",
+    "name:en": "Carwash",
+    "name:ru": "Автомойка",
+    "name:uk": "Автомийка",
+    "shop": "car_repair"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1224695500,
+   "lat": 50.4738048,
+   "lon": 30.4671441,
+   "tags": {
+    "amenity": "car_wash"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1246681424,
+   "lat": 50.426796,
+   "lon": 30.5051761,
+   "tags": {
+    "service:vehicle:tyres": "yes",
+    "shop": "car_repair"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1346361347,
+   "lat": 50.4626512,
+   "lon": 30.5873167,
+   "tags": {
+    "addr:housenumber": "100",
+    "addr:street": "вулиця Євгена Маланюка",
+    "amenity": "car_wash"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1360309921,
+   "lat": 50.4180183,
+   "lon": 30.488968,
+   "tags": {
+    "amenity": "car_wash",
+    "automated": "no",
+    "name": "BathHouseCar",
+    "opening_hours": "Mo-Su 09:00-21:00",
+    "self_service": "no"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1440829749,
+   "lat": 50.4518482,
+   "lon": 30.4857469,
+   "tags": {
+    "name": "Либідь авто",
+    "name:ru": "Лыбедь авто",
+    "name:uk": "Либідь авто",
+    "shop": "car_repair"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1440829758,
+   "lat": 50.4518195,
+   "lon": 30.4855881,
+   "tags": {
+    "name": "Укравто",
+    "name:uk": "Укравто",
+    "shop": "car"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1670382374,
+   "lat": 50.480335,
+   "lon": 30.4879968,
+   "tags": {
+    "name": "СТО Hyundai",
+    "name:uk": "СТО Hyundai",
+    "shop": "car_repair"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1670387000,
+   "lat": 50.4815829,
+   "lon": 30.487808,
+   "tags": {
+    "brand": "Subaru",
+    "brand:wikidata": "Q172741",
+    "name": "Subaru",
+    "shop": "car"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1922272975,
+   "lat": 50.4287242,
+   "lon": 30.4841552,
+   "tags": {
+    "amenity": "car_wash",
+    "name": "Мийка",
+    "name:uk": "Мойка"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1922276953,
+   "lat": 50.4287089,
+   "lon": 30.4840803,
+   "tags": {
+    "name": "СТО",
+    "name:uk": "СТО",
+    "shop": "car_repair"
+   }
+  },
+  {
+   "type": "node",
+   "id": 2078444890,
+   "lat": 50.4278352,
+   "lon": 30.4918051,
+   "tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "type": "node",
+   "id": 2087731576,
+   "lat": 50.4865701,
+   "lon": 30.520232,
+   "tags": {
+    "amenity": "car_wash"
+   }
+  },
+  {
+   "type": "node",
+   "id": 2154669836,
+   "lat": 50.4284699,
+   "lon": 30.5033466,
+   "tags": {
+    "amenity": "car_wash"
+   }
+  },
+  {
+   "type": "node",
+   "id": 2256187445,
+   "lat": 50.4699933,
+   "lon": 30.4840226,
+   "tags": {
+    "name": "Автомагазин 7",
+    "name:uk": "Автомагазин 7",
+    "opening_hours": "Mo-Fr 08:30-19:00; Sa 08:30-17:00; Su off",
+    "shop": "car_parts"
+   }
+  },
+  {
+   "type": "node",
+   "id": 2409855900,
+   "lat": 50.4110439,
+   "lon": 30.5104447,
+   "tags": {
+    "contact:website": "http://www.ase-avto.com",
+    "name": "Автоцентр Європа",
+    "shop": "car_repair"
+   }
+  },
+  {
+   "type": "node",
+   "id": 2409856962,
+   "lat": 50.4109834,
+   "lon": 30.4986459,
+   "tags": {
+    "name": "ДІАС",
+    "name:ru": "ДИАС",
+    "name:uk": "ДІАС",
+    "shop": "car_repair"
+   }
+  },
+  {
+   "type": "node",
+   "id": 2523126003,
+   "lat": 50.4425481,
+   "lon": 30.4699284,
+   "tags": {
+    "addr:housenumber": "12",
+    "addr:street": "вулиця Карела Чапека",
+    "name": "Hyundai Tucson club",
+    "shop": "car_repair"
+   }
+  }
+ ]
+}

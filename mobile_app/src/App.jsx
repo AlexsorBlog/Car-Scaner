@@ -13,10 +13,12 @@
  *    they sit outside AppLayout (no bottom nav over them)
  */
 
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 
 import { TelemetryProvider } from './context/TelemetryContext.jsx';
+import { getLastKnownPosition } from './services/geoService.js';
+import { prefetchShops } from './services/shops.js';
 import ConfirmModal           from './components/ui/ConfirmModal.jsx';
 import { ToastContainer }     from './components/ui/Toast.jsx';
 
@@ -49,6 +51,19 @@ const RouteFallback = () => (
 // ── App ───────────────────────────────────────────────────────────────────────
 
 function App() {
+  // Warm the nearby-services cache at launch so opening the Services tab draws
+  // instantly instead of waiting on Overpass (which is queue-bound: a smaller
+  // query measured SLOWER than a big one, so the only way to be fast is to
+  // already have the answer).
+  //
+  // Uses the stored last position — never starts GPS, because that would fire
+  // the location permission prompt on launch. No-ops when the area is already
+  // cached, and failures are silent; the page fetches normally if this misses.
+  useEffect(() => {
+    const last = getLastKnownPosition();
+    if (last) prefetchShops(last);
+  }, []);
+
   return (
     <BrowserRouter>
       {/*

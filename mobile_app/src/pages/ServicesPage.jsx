@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
-import { geoService, shopsCache } from '../services/geoService.js';
+import { geoService } from '../services/geoService.js';
+import { loadShops as loadShopsService } from '../services/shops.js';
 import { Capacitor } from '@capacitor/core';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -167,83 +168,13 @@ function haversineKm([lat1, lon1], [lat2, lon2]) {
 // it answers HTTP 200 in 0.4s but carries Switzerland data only, so a Kyiv
 // query returns zero elements — which would show as "no service stations
 // nearby" and be far more misleading than an outright error.
-const OVERPASS_ENDPOINTS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter',
-];
+// Endpoint list and timeout live in services/overpass.js so they can be
+// asserted in tests — two of the three mirrors used here were measured dead,
+// and the old 8000ms abort was SHORTER than the working mirror's real 8.1s
+// response, cancelling requests that were about to succeed.
 
-const OVERPASS_TIMEOUT_MS = 8000;
-
-async function fetchNearbyShops([lat, lon], radiusM = 5000, attempt = 1) {
-  const query = `
-    [out:json][timeout:15];
-    (
-      node["shop"="car_repair"](around:${radiusM},${lat},${lon});
-      way["shop"="car_repair"](around:${radiusM},${lat},${lon});
-      node["amenity"="car_repair"](around:${radiusM},${lat},${lon});
-    );
-    out center 40;
-  `;
-  const failures = [];
-
-  // Race all mirrors at once instead of trying them one after another. Trying
-  // them in sequence meant a worst case of endpoints × timeout (~36s+), which
-  // reads as "infinite loading" to the user when the primary is hung. Racing
-  // makes the wait equal to the FASTEST healthy mirror — normally well under a
-  // second — and caps the failure case at a single timeout.
-  const attemptOne = async (endpoint) => {
-    // fetch() has no built-in timeout and will otherwise wait indefinitely.
-    const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), OVERPASS_TIMEOUT_MS);
-    try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        // Without this, fetch() defaults the body to text/plain, and Overpass's
-        // server rejects that outright with 406 Not Acceptable — confirmed by
-        // reproducing the exact request outside the app; it fails identically
-        // regardless of radius since the request never reaches the query engine.
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'data=' + encodeURIComponent(query),
-        signal: abort.signal,
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      return (json.elements || []).map(el => ({
-        id: el.id,
-        name: el.tags?.name || 'СТО без назви',
-        lat: el.lat ?? el.center?.lat,
-        lon: el.lon ?? el.center?.lon,
-        phone: el.tags?.phone || el.tags?.['contact:phone'] || null,
-        opening: el.tags?.opening_hours || null,
-        isPartner: false,
-      })).filter(s => s.lat && s.lon);
-    } catch (err) {
-      const reason = err.name === 'AbortError' ? `timeout >${OVERPASS_TIMEOUT_MS / 1000}s` : err.message;
-      console.warn(`[Services] ${endpoint} failed: ${reason}`);
-      failures.push(`${new URL(endpoint).hostname}: ${reason}`);
-      throw err;
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-
-  try {
-    // Promise.any resolves on the first SUCCESS and only rejects if every
-    // mirror fails, which is exactly the semantics we want here.
-    return await Promise.any(OVERPASS_ENDPOINTS.map(attemptOne));
-  } catch {
-    // Every mirror failed. One short retry covers a transient overload spike,
-    // then give up rather than leaving the user on a spinner.
-    if (attempt < 2) {
-      await new Promise(r => setTimeout(r, 1200));
-      return fetchNearbyShops([lat, lon], radiusM, attempt + 1);
-    }
-    const err = new Error('Сервіс карт недоступний. Спробуйте ще раз за хвилину.');
-    err.detail = failures.join(' | ');
-    throw err;
-  }
-}
+// fetchNearbyShops now lives in services/overpass.js (shared with the
+// background prefetch in services/shops.js).
 
 // ── Open native maps ──────────────────────────────────────────────────────────
 function openMapsRoute(userPos, shop) {
@@ -287,7 +218,9 @@ export default function ServicesPage() {
   const hasFetchedInitialRef = useRef(false);
 
   // ── Load shops around a point (initial load, retry, radius expand) ──────────
-  const loadShops = useCallback(async (pos, radiusM = 5000, { allowCache = true } = {}) => {
+  // Caching, the instant first paint and the network retries all live in
+  // services/shops.js. This only decides what to do with the results.
+  const loadShops = useCallback(async (pos, radiusM = 5000, { force = false } = {}) => {
     const applyShops = (list) => {
       const withDist = list.map(s => ({
         ...s,
@@ -301,27 +234,30 @@ export default function ServicesPage() {
       return withDist;
     };
 
-    // Returning to this tab shouldn't blank the map and re-hit Overpass while
-    // the user waits — reuse a recent result for roughly the same area.
-    if (allowCache) {
-      const cached = shopsCache.get(pos, radiusM);
-      if (cached) {
-        applyShops(cached);
-        setShopsError(null);
-        return;
-      }
-    }
-
-    setIsFetchingShops(true);
     setShopsError(null);
+    let painted = false;
     try {
-      const found = await fetchNearbyShops(pos, radiusM);
-      shopsCache.set(pos, radiusM, found);
+      const found = await loadShopsService(pos, radiusM, {
+        force,
+        // Draw cached results the moment they are available, so the map is
+        // never empty while a request is in flight. `stale` means the entry
+        // came from a different zoom and a refresh is running behind it.
+        onInstant: ({ shops: cached, stale }) => {
+          applyShops(cached);
+          painted = true;
+          setIsFetchingShops(stale);
+        },
+      });
+      if (!painted) setIsFetchingShops(true);
       applyShops(found);
     } catch (err) {
-      console.error('[Services] fetchNearbyShops failed:', err);
-      setShopsError(err.message || 'Не вдалося завантажити СТО');
-      setShops([]);
+      console.error('[Services] loadShops failed:', err);
+      // Only surface an error if there is nothing on screen — replacing a
+      // usable map with an error message because a refresh failed is worse.
+      if (!painted) {
+        setShopsError(err.message || 'Не вдалося завантажити СТО');
+        setShops([]);
+      }
     } finally {
       setIsFetchingShops(false);
     }
@@ -379,7 +315,7 @@ export default function ServicesPage() {
     setIsFetchingShops(true);
     setShopsError(null);
     try {
-      const found = await fetchNearbyShops(newPos, 5000);
+      const found = await loadShopsService(newPos, 5000);
 
       setShops(prevShops => {
         const shopMap = new Map();
@@ -581,6 +517,23 @@ export default function ServicesPage() {
                     </svg>
                     {fmtDist(selectedShop.distKm)}
                   </span>
+                  {selectedShop.categoryLabel && (
+                    <>
+                      <span className="text-gray-700">•</span>
+                      <span className="text-[10px] text-gray-400">{selectedShop.categoryLabel}</span>
+                    </>
+                  )}
+                  {/* Show the number itself, not just a call button — people
+                      read it, save it, or dial it from another phone. */}
+                  {selectedShop.phone && (
+                    <>
+                      <span className="text-gray-700">•</span>
+                      <a href={`tel:${selectedShop.phone}`}
+                         className="text-[11px] text-blue-400 font-semibold whitespace-nowrap">
+                        {selectedShop.phone}
+                      </a>
+                    </>
+                  )}
                   {selectedShop.opening && (
                     <>
                       <span className="text-gray-700">•</span>
@@ -631,7 +584,7 @@ export default function ServicesPage() {
               <p className="text-red-400 text-xs font-bold mb-1">Не вдалося завантажити СТО</p>
               <p className="text-gray-500 text-[10px] mb-3">Проблема з мережею або сервісом карт. Спробуйте ще раз.</p>
               <button
-                onClick={() => position && loadShops(position)}
+                onClick={() => position && loadShops(position, 5000, { force: true })}
                 className="text-blue-400 text-xs font-bold underline"
               >
                 Спробувати ще раз
