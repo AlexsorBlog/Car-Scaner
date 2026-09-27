@@ -1,0 +1,1733 @@
+{
+ "shop:car_repair": {
+  "type": "FeatureCollection",
+  "features": [
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 4874334309,
+     "osm_key": "shop",
+     "osm_value": "car_repair",
+     "type": "house",
+     "name": "Ремонт Авто",
+     "street": "Малопідвальна вулиця",
+     "locality": "Старий Київ",
+     "district": "Центр",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01028",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5189205,
+      50.4498257
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 541638520,
+     "osm_key": "shop",
+     "osm_value": "car_repair",
+     "type": "house",
+     "name": "Шиномонтаж",
+     "street": "Телеграфний провулок",
+     "locality": "Собача стежка",
+     "district": "Клов",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01133",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5385248,
+      50.4358056
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 147147975,
+     "osm_key": "shop",
+     "osm_value": "car_repair",
+     "type": "house",
+     "housenumber": "101",
+     "name": "Стаус Авто",
+     "street": "Глибочицька вулиця",
+     "locality": "Вознесенський яр",
+     "district": "Центр",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "04053",
+     "countrycode": "UA",
+     "extent": [
+      30.5056439,
+      50.4637492,
+      30.5066401,
+      50.4632037
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5062378,
+      50.4634654
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 4751638322,
+     "osm_key": "shop",
+     "osm_value": "car_repair",
+     "type": "house",
+     "housenumber": "10",
+     "name": "ПодолАвтоСервіс",
+     "street": "Набережно-Хрещатицька вулиця",
+     "locality": "Рибальський острів",
+     "district": "Поділ",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "04070",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5222144,
+      50.4711268
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 306354474,
+     "osm_key": "shop",
+     "osm_value": "car_repair",
+     "type": "house",
+     "name": "На Печерске",
+     "street": "вулиця Євгена Коновальця",
+     "locality": "Соколиний Ріг",
+     "district": "Клов",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01133",
+     "countrycode": "UA",
+     "extent": [
+      30.5313264,
+      50.4289143,
+      30.5316171,
+      50.4287337
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5314717,
+      50.4288239
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 4214876489,
+     "osm_key": "shop",
+     "osm_value": "car_repair",
+     "type": "house",
+     "housenumber": "7-А",
+     "name": "ГАТП \"Автомехбаза\"",
+     "street": "Лабораторний провулок",
+     "locality": "Соколиний Ріг",
+     "district": "Клов",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01133",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5256719,
+      50.4280744
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 11073110712,
+     "osm_key": "shop",
+     "osm_value": "car_repair",
+     "type": "house",
+     "name": "Флагман мотор Україна",
+     "street": "Либідська вулиця",
+     "locality": "Паньківщина",
+     "district": "Нова Забудова",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01000",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4966036,
+      50.4360555
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 4524959285,
+     "osm_key": "shop",
+     "osm_value": "car_repair",
+     "type": "house",
+     "housenumber": "2",
+     "name": "Ct-service.com.ua",
+     "street": "вулиця Казимира Малевича",
+     "locality": "Паньківщина",
+     "district": "Нова Забудова",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01033",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5098014,
+      50.4296429
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 11073092546,
+     "osm_key": "shop",
+     "osm_value": "car_repair",
+     "type": "house",
+     "name": "Elcars",
+     "street": "Либідська вулиця",
+     "locality": "Паньківщина",
+     "district": "Нова Забудова",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01000",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4966362,
+      50.4356645
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 11073093571,
+     "osm_key": "shop",
+     "osm_value": "car_repair",
+     "type": "house",
+     "name": "Гепард",
+     "street": "Либідська вулиця",
+     "locality": "Паньківщина",
+     "district": "Нова Забудова",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01000",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.495241,
+      50.4362781
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 4191580431,
+     "osm_key": "shop",
+     "osm_value": "car_repair",
+     "type": "house",
+     "housenumber": "63",
+     "street": "вулиця Гетьмана Павла Скоропадського",
+     "locality": "Батиєва гора",
+     "district": "Соломʼянка",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "03031",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.495131,
+      50.4363334
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 11073079773,
+     "osm_key": "shop",
+     "osm_value": "car_repair",
+     "type": "house",
+     "name": "MB Master",
+     "street": "вулиця Гетьмана Павла Скоропадського",
+     "locality": "Батиєва гора",
+     "district": "Соломʼянка",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "03031",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4945429,
+      50.4365509
+     ]
+    }
+   }
+  ]
+ },
+ "craft:car_repair": {
+  "type": "FeatureCollection",
+  "features": [
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 6694180676,
+     "osm_key": "craft",
+     "osm_value": "car_repair",
+     "type": "house",
+     "housenumber": "114б",
+     "name": "Shinaland",
+     "street": "вулиця Євгена Маланюка",
+     "locality": "Микільська Слобідка",
+     "district": "Лівобережний масив",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "02000",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5865097,
+      50.4719429
+     ]
+    }
+   }
+  ]
+ },
+ "shop:tyres": {
+  "type": "FeatureCollection",
+  "features": [
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 592598844,
+     "osm_key": "shop",
+     "osm_value": "tyres",
+     "type": "house",
+     "name": "Vianor",
+     "street": "Ростиславська вулиця",
+     "locality": "Солдатська Слобідка",
+     "district": "Лукʼянівка",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "04116",
+     "countrycode": "UA",
+     "extent": [
+      30.4772451,
+      50.4552724,
+      30.4773829,
+      50.4552035
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.477314,
+      50.455238
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 3842225048,
+     "osm_key": "shop",
+     "osm_value": "tyres",
+     "type": "house",
+     "housenumber": "7",
+     "name": "Vianor",
+     "street": "Уманська вулиця",
+     "locality": "Першотравневий (Чоколівський) масив",
+     "district": "Соломʼянка",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "03168",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4768728,
+      50.445212
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 1171106954,
+     "osm_key": "shop",
+     "osm_value": "tyres",
+     "type": "house",
+     "name": "OkShina",
+     "street": "Кирилівська вулиця",
+     "locality": "Юрковиця",
+     "district": "Поділ",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "03080",
+     "countrycode": "UA",
+     "extent": [
+      30.4945848,
+      50.4740207,
+      30.4947375,
+      50.4738948
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4946649,
+      50.4739579
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 495727798,
+     "osm_key": "shop",
+     "osm_value": "tyres",
+     "type": "house",
+     "name": "Шини & диски",
+     "street": "Костянтинівська вулиця",
+     "locality": "Плоське",
+     "district": "Поділ",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "03080",
+     "countrycode": "UA",
+     "extent": [
+      30.4969727,
+      50.4762613,
+      30.4971124,
+      50.4761735
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4970425,
+      50.4762175
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 4459054190,
+     "osm_key": "shop",
+     "osm_value": "tyres",
+     "type": "house",
+     "name": "Віанор шинний центр",
+     "street": "вулиця Протасів Яр",
+     "locality": "Клінічне Містечко",
+     "district": "Соломʼянка",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "03038",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4981202,
+      50.4223912
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 4368801998,
+     "osm_key": "shop",
+     "osm_value": "tyres",
+     "type": "house",
+     "name": "Шиномонтаж",
+     "street": "вулиця Електриків",
+     "locality": "Рибальський острів",
+     "district": "Поділ",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "04211",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5088723,
+      50.4832701
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 495727796,
+     "osm_key": "shop",
+     "osm_value": "tyres",
+     "type": "house",
+     "housenumber": "4-А",
+     "name": "Vianor",
+     "street": "Новокостянтинівська вулиця",
+     "district": "Почайна",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "04080",
+     "countrycode": "UA",
+     "extent": [
+      30.4922067,
+      50.4794761,
+      30.492722,
+      50.4791456
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4924643,
+      50.4793109
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 147422390,
+     "osm_key": "shop",
+     "osm_value": "tyres",
+     "type": "house",
+     "housenumber": "12",
+     "name": "Шиномонтаж",
+     "street": "вулиця Електриків",
+     "locality": "Богуславщина",
+     "district": "Поділ",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "04080",
+     "countrycode": "UA",
+     "extent": [
+      30.5014763,
+      50.4834143,
+      30.5026934,
+      50.4831954
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5020849,
+      50.483305
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 863518554,
+     "osm_key": "shop",
+     "osm_value": "tyres",
+     "type": "house",
+     "housenumber": "3",
+     "street": "вулиця Джона Маккейна",
+     "locality": "Саперне Поле",
+     "district": "Звіринець",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01042",
+     "countrycode": "UA",
+     "extent": [
+      30.5277753,
+      50.4142649,
+      30.52795,
+      50.4141652
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5278627,
+      50.414215
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 3839189738,
+     "osm_key": "shop",
+     "osm_value": "tyres",
+     "type": "house",
+     "housenumber": "2",
+     "name": "Garazh",
+     "street": "Приозерна вулиця",
+     "district": "Почайна",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "04176",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.520608,
+      50.4932411
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 165739435,
+     "osm_key": "shop",
+     "osm_value": "tyres",
+     "type": "house",
+     "name": "Шиномонтаж",
+     "street": "Слобідський провулок",
+     "locality": "Хутір",
+     "district": "Лівобережний масив",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "02005",
+     "countrycode": "UA",
+     "extent": [
+      30.5894308,
+      50.4611204,
+      30.5896342,
+      50.4610131
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5895325,
+      50.4610668
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 7883297325,
+     "osm_key": "shop",
+     "osm_value": "tyres",
+     "type": "house",
+     "housenumber": "196-Б",
+     "name": "Tyreplus",
+     "street": "проспект Валерія Лобановського",
+     "locality": "Забайківʼя",
+     "district": "Деміївка",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "03039",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.515717,
+      50.406796
+     ]
+    }
+   }
+  ]
+ },
+ "shop:car_parts": {
+  "type": "FeatureCollection",
+  "features": [
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 7239000515,
+     "osm_key": "shop",
+     "osm_value": "car_parts",
+     "type": "house",
+     "housenumber": "16",
+     "name": "PTS",
+     "street": "Кудрявська вулиця",
+     "locality": "Вознесенський яр",
+     "district": "Центр",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "04053",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.501045,
+      50.4583979
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 3305617153,
+     "osm_key": "shop",
+     "osm_value": "car_parts",
+     "type": "house",
+     "housenumber": "15",
+     "name": "АТЛ",
+     "street": "вулиця Нижній Вал",
+     "locality": "Вознесенський яр",
+     "district": "Шевченківський район",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "04071",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5095195,
+      50.4647757
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 4458669238,
+     "osm_key": "shop",
+     "osm_value": "car_parts",
+     "type": "house",
+     "housenumber": "107",
+     "name": "АТЛ Автомагазин",
+     "street": "Жилянська вулиця",
+     "locality": "Арештантські городи",
+     "district": "Центр",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01035",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4929374,
+      50.444524
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 147541993,
+     "osm_key": "shop",
+     "osm_value": "car_parts",
+     "type": "house",
+     "name": "GTI center",
+     "street": "Ділова вулиця",
+     "locality": "Черепанова гора",
+     "district": "Клов",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01019",
+     "countrycode": "UA",
+     "extent": [
+      30.5170863,
+      50.4302073,
+      30.5171771,
+      50.4300771
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5171315,
+      50.4301175
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 7767798189,
+     "osm_key": "shop",
+     "osm_value": "car_parts",
+     "type": "house",
+     "name": "SkyCars",
+     "street": "Дмитрівська вулиця",
+     "locality": "Солдатська Слобідка",
+     "district": "Лукʼянівка",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01135",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4883092,
+      50.453202
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 11967384940,
+     "osm_key": "shop",
+     "osm_value": "car_parts",
+     "type": "house",
+     "housenumber": "18",
+     "name": "Автоклад",
+     "street": "Юрківська вулиця",
+     "locality": "Плоське",
+     "district": "Поділ",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "03080",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5059095,
+      50.4713063
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 11294518294,
+     "osm_key": "shop",
+     "osm_value": "car_parts",
+     "type": "house",
+     "name": "VR6",
+     "street": "вулиця Вʼячеслава Чорновола",
+     "locality": "Солдатська Слобідка",
+     "district": "Лукʼянівка",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01135",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4842399,
+      50.4500478
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 6166231599,
+     "osm_key": "shop",
+     "osm_value": "car_parts",
+     "type": "house",
+     "housenumber": "29",
+     "name": "ATOMIC-SHOP.UA",
+     "street": "Набережно-Лугова вулиця",
+     "locality": "Плоське",
+     "district": "Поділ",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "04073",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5080246,
+      50.4749083
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 2256187445,
+     "osm_key": "shop",
+     "osm_value": "car_parts",
+     "type": "house",
+     "name": "Автомагазин 7",
+     "street": "Загорівська вулиця",
+     "locality": "Кмитів Яр",
+     "district": "Лукʼянівка",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "04107",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4840226,
+      50.4699933
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 636869234,
+     "osm_key": "shop",
+     "osm_value": "car_parts",
+     "type": "house",
+     "housenumber": "86",
+     "name": "База Автозвуку",
+     "street": "вулиця Казимира Малевича",
+     "locality": "Забайківʼя",
+     "district": "Нова Забудова",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "03150",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.51727,
+      50.417912
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 3497246397,
+     "osm_key": "shop",
+     "osm_value": "car_parts",
+     "type": "house",
+     "name": "Ремонт автомобілів СТО",
+     "street": "вулиця Патріарха Мстислава Скрипника",
+     "locality": "Богданів яр",
+     "district": "Соломʼянка",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "03035",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.47823,
+      50.4334981
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 633356255,
+     "osm_key": "shop",
+     "osm_value": "car_parts",
+     "type": "house",
+     "name": "АТЛ Автомагазин",
+     "street": "вулиця Казимира Малевича",
+     "locality": "Забайківʼя",
+     "district": "Нова Забудова",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "03150",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5183051,
+      50.416382
+     ]
+    }
+   }
+  ]
+ },
+ "shop:car": {
+  "type": "FeatureCollection",
+  "features": [
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 6041186585,
+     "osm_key": "shop",
+     "osm_value": "car",
+     "type": "house",
+     "name": "АвтоАмерика Авто з США",
+     "street": "Інститутська вулиця",
+     "locality": "Урядовий квартал",
+     "district": "Липки",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01008",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5327895,
+      50.4461061
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 504912279,
+     "osm_key": "shop",
+     "osm_value": "car",
+     "type": "house",
+     "housenumber": "2",
+     "name": "BMW, Rolls Royce",
+     "street": "вулиця Мечникова",
+     "locality": "Собача стежка",
+     "district": "Клов",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01001",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5270197,
+      50.4377459
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 11131616191,
+     "osm_key": "shop",
+     "osm_value": "car",
+     "type": "house",
+     "housenumber": "2",
+     "name": "Сіті Плаза",
+     "street": "вулиця Мечникова",
+     "locality": "Собача стежка",
+     "district": "Клов",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01001",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.527729,
+      50.4375656
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 331817895,
+     "osm_key": "shop",
+     "osm_value": "car",
+     "type": "house",
+     "name": "Тойота Україна",
+     "street": "вулиця Мечникова",
+     "locality": "Собача стежка",
+     "district": "Клов",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01043",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5359091,
+      50.437842
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 8671490203,
+     "osm_key": "shop",
+     "osm_value": "car",
+     "type": "house",
+     "housenumber": "133-А",
+     "name": "Legkocars",
+     "street": "вулиця Саксаганського",
+     "locality": "Євбаз",
+     "district": "Центр",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01054",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4971271,
+      50.4431538
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 851522376,
+     "osm_key": "shop",
+     "osm_value": "car",
+     "type": "house",
+     "housenumber": "8",
+     "name": "Lux Cars",
+     "street": "вулиця Казимира Малевича",
+     "locality": "Паньківщина",
+     "district": "Нова Забудова",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01033",
+     "countrycode": "UA",
+     "extent": [
+      30.5099254,
+      50.4286893,
+      30.5104189,
+      50.4283442
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5101712,
+      50.4285604
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 641815087,
+     "osm_key": "shop",
+     "osm_value": "car",
+     "type": "house",
+     "housenumber": "20",
+     "name": "Premier Auto",
+     "street": "вулиця Казимира Малевича",
+     "locality": "Ямки",
+     "district": "Нова Забудова",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "03150",
+     "countrycode": "UA",
+     "extent": [
+      30.5107748,
+      50.4276026,
+      30.5115019,
+      50.4270391
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5111384,
+      50.4273203
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 1440829758,
+     "osm_key": "shop",
+     "osm_value": "car",
+     "type": "house",
+     "name": "Укравто",
+     "street": "Павлівська вулиця",
+     "locality": "Солдатська Слобідка",
+     "district": "Лукʼянівка",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01135",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4855881,
+      50.4518195
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 495494324,
+     "osm_key": "shop",
+     "osm_value": "car",
+     "type": "house",
+     "name": "HОBI ABTO",
+     "street": "Глибочицька вулиця",
+     "locality": "Вовчий яр",
+     "district": "Лукʼянівка",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "04052",
+     "countrycode": "UA",
+     "extent": [
+      30.4892781,
+      50.4610221,
+      30.4895933,
+      50.4608215
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4894351,
+      50.4609252
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 191068223,
+     "osm_key": "shop",
+     "osm_value": "car",
+     "type": "house",
+     "name": "Автосалон",
+     "street": "вулиця Івана Мазепи",
+     "locality": "Цитадель",
+     "district": "Печерськ",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01015",
+     "countrycode": "UA",
+     "extent": [
+      30.5558003,
+      50.4314063,
+      30.5565307,
+      50.430908
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.556133,
+      50.4311516
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 11377690936,
+     "osm_key": "shop",
+     "osm_value": "car",
+     "type": "house",
+     "name": "Vipcar",
+     "street": "Болсуновська вулиця",
+     "locality": "Царське Село",
+     "district": "Звіринець",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01051",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5524707,
+      50.4215626
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 147421035,
+     "osm_key": "shop",
+     "osm_value": "car",
+     "type": "house",
+     "housenumber": "12/2",
+     "name": "АвтоЦентрКиїв",
+     "street": "вулиця Електриків",
+     "locality": "Рибальський острів",
+     "district": "Поділ",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "04211",
+     "countrycode": "UA",
+     "extent": [
+      30.5092293,
+      50.4833806,
+      30.5095809,
+      50.4832042
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5093752,
+      50.4832885
+     ]
+    }
+   }
+  ]
+ },
+ "amenity:car_wash": {
+  "type": "FeatureCollection",
+  "features": [
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 12256331269,
+     "osm_key": "amenity",
+     "osm_value": "car_wash",
+     "type": "house",
+     "housenumber": "10",
+     "name": "T.REX Car Wash",
+     "street": "Володимирська вулиця",
+     "locality": "Го́род Володимира",
+     "district": "Центр",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01001",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.516774,
+      50.4567319
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 11086330506,
+     "osm_key": "amenity",
+     "osm_value": "car_wash",
+     "type": "house",
+     "housenumber": "4A",
+     "name": "Автомийка",
+     "street": "Львівська площа",
+     "locality": "Старий Київ",
+     "district": "Центр",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "04053",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5080944,
+      50.4560095
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 5105118137,
+     "osm_key": "amenity",
+     "osm_value": "car_wash",
+     "type": "house",
+     "name": "KORONA",
+     "street": "вулиця Олеся Гончара",
+     "locality": "Святославський яр",
+     "district": "Центр",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01054",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5040436,
+      50.449984
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 10973643071,
+     "osm_key": "amenity",
+     "osm_value": "car_wash",
+     "type": "house",
+     "housenumber": "5-А",
+     "name": "Artisan",
+     "street": "вулиця Мечникова",
+     "locality": "Собача стежка",
+     "district": "Клов",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01043",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5307494,
+      50.4374588
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 11104334864,
+     "osm_key": "amenity",
+     "osm_value": "car_wash",
+     "type": "house",
+     "housenumber": "2",
+     "name": "Libra Aquarius",
+     "street": "Короленківська вулиця",
+     "locality": "Паньківщина",
+     "district": "Нова Забудова",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01033",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5058968,
+      50.4335403
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "W",
+     "osm_id": 152201882,
+     "osm_key": "amenity",
+     "osm_value": "car_wash",
+     "type": "house",
+     "housenumber": "5",
+     "street": "вулиця Василя Яна",
+     "locality": "Паньківщина",
+     "district": "Нова Забудова",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01033",
+     "countrycode": "UA",
+     "extent": [
+      30.5021547,
+      50.4351784,
+      30.5026696,
+      50.4348677
+     ]
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5024122,
+      50.4350231
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 4458669235,
+     "osm_key": "amenity",
+     "osm_value": "car_wash",
+     "type": "house",
+     "housenumber": "103",
+     "name": "Clean Comfort",
+     "street": "Жилянська вулиця",
+     "locality": "Арештантські городи",
+     "district": "Центр",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01035",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4915739,
+      50.4454989
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 2956180353,
+     "osm_key": "amenity",
+     "osm_value": "car_wash",
+     "type": "house",
+     "name": "Dehub",
+     "street": "провулок Фізкультури",
+     "locality": "Паньківщина",
+     "district": "Нова Забудова",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01033",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5093147,
+      50.4302522
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 11073112178,
+     "osm_key": "amenity",
+     "osm_value": "car_wash",
+     "type": "house",
+     "name": "Aqua Racer",
+     "street": "Либідська вулиця",
+     "locality": "Паньківщина",
+     "district": "Нова Забудова",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01000",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4963215,
+      50.4359287
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 4202367790,
+     "osm_key": "amenity",
+     "osm_value": "car_wash",
+     "type": "house",
+     "name": "707",
+     "street": "Павлівська вулиця",
+     "locality": "Солдатська Слобідка",
+     "district": "Лукʼянівка",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "01135",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4882705,
+      50.4524965
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 13845164126,
+     "osm_key": "amenity",
+     "osm_value": "car_wash",
+     "type": "house",
+     "housenumber": "9",
+     "name": "Мийка UA",
+     "street": "Нижньоюрківська вулиця",
+     "locality": "Юрковиця",
+     "district": "Поділ",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "04080",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5004239,
+      50.4677532
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 11092336857,
+     "osm_key": "amenity",
+     "osm_value": "car_wash",
+     "type": "house",
+     "name": "Dr. Det",
+     "street": "вулиця Івана Федорова",
+     "district": "Нова Забудова",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "03038",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.5098919,
+      50.4283996
+     ]
+    }
+   }
+  ]
+ },
+ "shop:motorcycle_repair": {
+  "type": "FeatureCollection",
+  "features": [
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 11085129406,
+     "osm_key": "shop",
+     "osm_value": "motorcycle_repair",
+     "type": "house",
+     "name": "BSS",
+     "street": "проспект Степана Бандери",
+     "locality": "Копилів",
+     "district": "Куренівка",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "04023",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4705217,
+      50.4895915
+     ]
+    }
+   },
+   {
+    "type": "Feature",
+    "properties": {
+     "osm_type": "N",
+     "osm_id": 11066818533,
+     "osm_key": "shop",
+     "osm_value": "motorcycle_repair",
+     "type": "house",
+     "name": "Big Twin",
+     "street": "Фастівська вулиця",
+     "locality": "Новокараваєві Дачі",
+     "district": "Чоколівка",
+     "city": "Київ",
+     "country": "Україна",
+     "postcode": "03151",
+     "countrycode": "UA"
+    },
+    "geometry": {
+     "type": "Point",
+     "coordinates": [
+      30.4445308,
+      50.4226043
+     ]
+    }
+   }
+  ]
+ }
+}

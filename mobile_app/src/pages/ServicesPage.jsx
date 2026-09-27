@@ -18,19 +18,72 @@ const KYIV_FALLBACK = [50.4501, 30.5234];
 // account problem, and it got more obvious when zoomed in because more tiles
 // are on screen.
 //
-// OSM's standard tiles are keyless and reliable, but light-themed, so the dark
-// styling is applied in CSS instead (.leaflet-tile-pane filter in App.css).
+// The basemap is OpenFreeMap's "dark" vector style — a REAL night-mode map
+// rather than a light raster map with a CSS inversion filter over it. Inverting
+// OSM tiles also inverts their labels and icons, which is why it never quite
+// looked right.
 //
-// To use a keyed provider later (CARTO, MapTiler, Stadia, Mapbox…), set
-// VITE_MAP_TILE_URL / VITE_MAP_TILE_ATTRIBUTION in .env — no code change, and
-// remove the CSS filter if the provider already ships a dark style.
-const TILE_URL = import.meta.env.VITE_MAP_TILE_URL
-  || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+// Why this provider: it needs no API key, has no usage limits, allows commercial
+// use, and is funded by donations rather than a free tier that can be withdrawn.
+// That last part matters here — CARTO's dark basemap started stamping
+// "API KEY REQUIRED" across every tile mid-project, and Stadia's dark style
+// answers 401 without a key (both verified by fetching a tile directly).
+//
+// Set VITE_MAP_STYLE_URL to use a different MapLibre style, or
+// VITE_MAP_TILE_URL to fall back to plain raster tiles (which then get the CSS
+// inversion treatment, as before).
+const VECTOR_STYLE_URL = import.meta.env.VITE_MAP_STYLE_URL
+  || 'https://tiles.openfreemap.org/styles/dark';
+const RASTER_TILE_URL = import.meta.env.VITE_MAP_TILE_URL || null;
 const TILE_ATTRIBUTION = import.meta.env.VITE_MAP_TILE_ATTRIBUTION
   || '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
-// When a provider supplies its own dark tiles, set VITE_MAP_TILE_DARK=preset to
-// skip the CSS inversion.
-const TILES_NEED_DARKENING = import.meta.env.VITE_MAP_TILE_DARK !== 'preset';
+// Only raster tiles need the CSS darkening; the vector style is already dark.
+const TILES_NEED_DARKENING = !!RASTER_TILE_URL
+  && import.meta.env.VITE_MAP_TILE_DARK !== 'preset';
+
+// ── Basemap layer ─────────────────────────────────────────────────────────────
+// Bridges MapLibre GL (vector, dark) into the Leaflet map so all the existing
+// Leaflet markers, popups and gestures keep working unchanged.
+function DarkVectorTiles() {
+  const map = useMap();
+
+  useEffect(() => {
+    let layer;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const [{ default: maplibregl }] = await Promise.all([
+          import('maplibre-gl'),
+          import('@maplibre/maplibre-gl-leaflet'),
+        ]);
+        if (cancelled) return;
+        // The bridge attaches itself to the Leaflet global.
+        window.maplibregl = maplibregl;
+        layer = L.maplibreGL({
+          style: VECTOR_STYLE_URL,
+          attribution: TILE_ATTRIBUTION,
+        }).addTo(map);
+      } catch (err) {
+        // A blank map would be worse than a light one: fall back to raster OSM.
+        console.warn('[Services] vector basemap unavailable, using raster:', err.message);
+        if (cancelled) return;
+        layer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: TILE_ATTRIBUTION,
+          maxZoom: 19,
+        }).addTo(map);
+        map.getContainer().classList.add('dark-tiles');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (layer) map.removeLayer(layer);
+    };
+  }, [map]);
+
+  return null;
+}
 
 // ── 1. NEW COMPONENT: Fix Map Sizing ──────────────────────────────────────────
 // Цей компонент вирішує проблему "чорного екрану", примусово змушуючи
@@ -247,6 +300,14 @@ export default function ServicesPage() {
           painted = true;
           setIsFetchingShops(stale);
         },
+        // Phone numbers arrive a beat after the list: the search index has no
+        // tags, so they are looked up per shop once the map is already drawn.
+        onEnriched: (withContacts) => {
+          applyShops(withContacts);
+          setSelectedShop((prev) => (prev
+            ? withContacts.find(s => s.id === prev.id) || prev
+            : prev));
+        },
       });
       if (!painted) setIsFetchingShops(true);
       applyShops(found);
@@ -379,11 +440,15 @@ export default function ServicesPage() {
               {/* Примусовий ререндер розміру карти для мобільних */}
               <FixMapRender />
 
-              <TileLayer
-                attribution={TILE_ATTRIBUTION}
-                url={TILE_URL}
-                maxZoom={19}
-              />
+              {RASTER_TILE_URL ? (
+                <TileLayer
+                  attribution={TILE_ATTRIBUTION}
+                  url={RASTER_TILE_URL}
+                  maxZoom={19}
+                />
+              ) : (
+                <DarkVectorTiles />
+              )}
 
               {/* User dot */}
               <Marker position={position} icon={userIcon} />

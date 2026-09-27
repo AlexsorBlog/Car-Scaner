@@ -25,14 +25,45 @@
  */
 
 import { fetchNearbyShops } from './overpass.js';
+import {
+  fetchPhotonShops, enrichFromOsm, dedupeShops, PHOTON_SECONDARY_TAGS,
+} from './photon.js';
 import { shopsCache as defaultCache } from './shopsCache.js';
+
+/** How many shops get a phone-number lookup up front. */
+const ENRICH_HEAD = 12;
+
+/**
+ * Photon first, Overpass as a safety net.
+ *
+ * Photon answers in 0.2-1.3s; Overpass took 2.8s at best and 97s at worst on the
+ * same data, so it is no longer the primary source. It stays as a fallback
+ * because it is a different operator with different failure modes, and because
+ * it returns phone numbers directly.
+ */
+export async function fetchShopsBestSource(pos, radiusM) {
+  try {
+    const viaPhoton = await fetchPhotonShops(pos, radiusM);
+    if (viaPhoton.length > 0) return viaPhoton;
+    console.warn('[Services] Photon returned nothing, falling back to Overpass');
+  } catch (err) {
+    console.warn('[Services] Photon failed, falling back to Overpass:', err.message);
+  }
+  // Overpass already carries phone numbers, so no enrichment pass is needed.
+  const viaOverpass = await fetchNearbyShops(pos, radiusM);
+  return viaOverpass.map(s => ({ ...s, enrichTried: true }));
+}
 
 /**
  * @param {{cache?: object, fetcher?: (pos:[number,number], radiusM:number)=>Promise<Array>}} deps
  *        Injectable so the behaviour can be tested without a network or a
  *        browser: see __tests__/shops.test.mjs.
  */
-export function createShopsService({ cache = defaultCache, fetcher = fetchNearbyShops } = {}) {
+export function createShopsService({
+  cache = defaultCache,
+  fetcher = fetchShopsBestSource,
+  enrich = enrichFromOsm,
+} = {}) {
   // In-flight requests keyed by area+radius, so a page opening while the
   // prefetch is still running joins that request instead of starting a second.
   const inFlight = new Map();
@@ -66,8 +97,43 @@ export function createShopsService({ cache = defaultCache, fetcher = fetchNearby
    *   force     — skip the cache (the manual refresh button).
    * @returns {Promise<Array>} the freshest shops available.
    */
+  /** True when the head of the list still has numbers we have not looked up. */
+  function needsEnrichment(shops) {
+    return shops.slice(0, ENRICH_HEAD).some(s => !s.enrichTried && !s.phone);
+  }
+
+  /**
+   * Fill in phone numbers after the list is already on screen. Photon has no
+   * tags, so numbers arrive a beat later rather than holding up the search.
+   * Silent on failure and re-cached on success.
+   */
+  function enrichInBackground(pos, radiusM, shops, onEnriched) {
+    if (!onEnriched) return;
+
+    Promise.resolve()
+      // The less-urgent categories (dealers, car washes, moto) are fetched here
+      // rather than up front, so the first paint costs 4 requests instead of 7.
+      .then(async () => {
+        try {
+          const extra = await fetchPhotonShops(pos, radiusM, { tags: PHOTON_SECONDARY_TAGS });
+          return extra.length ? dedupeShops([shops, extra]) : shops;
+        } catch {
+          return shops;   // secondary categories are optional
+        }
+      })
+      .then(async (merged) => (needsEnrichment(merged)
+        ? enrich(merged, { max: ENRICH_HEAD })
+        : merged))
+      .then((finalShops) => {
+        if (finalShops === shops) return;   // nothing new to report
+        cache.set(pos, radiusM, finalShops);
+        onEnriched(finalShops);
+      })
+      .catch(() => { /* extras and numbers are a bonus; the list already works */ });
+  }
+
   async function loadShops(pos, radiusM = 5000, opts = {}) {
-    const { onInstant, force = false } = opts;
+    const { onInstant, onEnriched, force = false } = opts;
     if (!pos) return [];
 
     if (!force) {
@@ -75,6 +141,8 @@ export function createShopsService({ cache = defaultCache, fetcher = fetchNearby
       const exact = cache.get(pos, radiusM);
       if (exact) {
         onInstant?.({ shops: exact, ts: Date.now(), stale: false });
+        // Cached before its numbers arrived? Finish the job without refetching.
+        enrichInBackground(pos, radiusM, exact, onEnriched);
         return exact;
       }
 
@@ -83,7 +151,9 @@ export function createShopsService({ cache = defaultCache, fetcher = fetchNearby
       if (paint) {
         onInstant?.({ shops: paint.shops, ts: paint.ts, stale: true });
         try {
-          return await fetchOnce(pos, radiusM);
+          const fresh = await fetchOnce(pos, radiusM);
+          enrichInBackground(pos, radiusM, fresh, onEnriched);
+          return fresh;
         } catch {
           // The user is looking at real, recent data. Keep it rather than
           // replacing a usable map with an error because a refresh failed.
@@ -92,7 +162,9 @@ export function createShopsService({ cache = defaultCache, fetcher = fetchNearby
       }
     }
 
-    return fetchOnce(pos, radiusM);
+    const fresh = await fetchOnce(pos, radiusM);
+    enrichInBackground(pos, radiusM, fresh, onEnriched);
+    return fresh;
   }
 
   /**

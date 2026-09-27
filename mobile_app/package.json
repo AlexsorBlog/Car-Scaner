@@ -14,14 +14,15 @@
     "test:fuel": "node src/obd/__tests__/fuelRate.test.mjs",
     "test:scanner": "node src/obd/__tests__/dtcScanner.test.mjs",
     "test:log": "node src/obd/__tests__/diagnosticLog.test.mjs",
-    "test": "npm run test:dtc && npm run test:vin && npm run test:reallog && npm run test:fuel && npm run test:scanner && npm run test:log && npm run test:falsepos && npm run test:e2e && npm run test:graph && npm run test:scrolllock && npm run test:overpass && npm run test:shopscache && npm run test:shops",
+    "test": "npm run test:dtc && npm run test:vin && npm run test:reallog && npm run test:fuel && npm run test:scanner && npm run test:log && npm run test:falsepos && npm run test:e2e && npm run test:graph && npm run test:scrolllock && npm run test:overpass && npm run test:shopscache && npm run test:shops && npm run test:photon",
     "test:falsepos": "node src/obd/__tests__/falsePositives.test.mjs",
     "test:e2e": "node src/obd/__tests__/endToEnd.test.mjs",
     "test:graph": "node src/obd/__tests__/graphSeries.test.mjs",
     "test:scrolllock": "node src/utils/__tests__/scrollLock.test.mjs",
     "test:overpass": "node src/services/__tests__/overpass.test.mjs",
     "test:shopscache": "node src/services/__tests__/shopsCache.test.mjs",
-    "test:shops": "node src/services/__tests__/shops.test.mjs"
+    "test:shops": "node src/services/__tests__/shops.test.mjs",
+    "test:photon": "node src/services/__tests__/photon.test.mjs"
   },
   "dependencies": {
     "@capacitor-community/bluetooth-le": "^8.1.3",
@@ -30,8 +31,10 @@
     "@capacitor/camera": "^8.2.2",
     "@capacitor/geolocation": "^8.2.0",
     "@capacitor/ios": "^8.5.0",
+    "@maplibre/maplibre-gl-leaflet": "^0.1.4",
     "@tailwindcss/vite": "^4.2.2",
     "leaflet": "^1.9.4",
+    "maplibre-gl": "^6.11.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-leaflet": "^5.0.0",
