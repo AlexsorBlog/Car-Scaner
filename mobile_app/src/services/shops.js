@@ -33,23 +33,52 @@ import { shopsCache as defaultCache } from './shopsCache.js';
 /** How many shops get a phone-number lookup up front. */
 const ENRICH_HEAD = 12;
 
+// Optional chaining because `import.meta.env` exists only under Vite — the
+// test runner imports this module in plain Node, where it is undefined.
+const API_BASE = import.meta.env?.VITE_API_URL || 'http://localhost:3000';
+
 /**
- * Photon first, Overpass as a safety net.
+ * Our own server first, then the public providers directly.
  *
- * Photon answers in 0.2-1.3s; Overpass took 2.8s at best and 97s at worst on the
- * same data, so it is no longer the primary source. It stays as a fallback
- * because it is a different operator with different failure modes, and because
- * it returns phone numbers directly.
+ * The server does the same search but from ONE address with ONE shared cache,
+ * which matters because these are free public services with fair-use limits:
+ * during development a single machine bursting searches got blocked outright by
+ * Photon, every request then failing at the connection level. Every phone
+ * querying them independently is both rude and fragile. It also turns up to
+ * fifteen mobile requests (searches + per-shop phone lookups) into one, and the
+ * second person to search a district gets the first person's answer instantly.
+ *
+ * The direct paths remain as fallbacks so the screen still works if our server
+ * is unreachable.
  */
 export async function fetchShopsBestSource(pos, radiusM) {
   try {
+    const token = localStorage.getItem('obd_token');
+    const url = `${API_BASE}/api/places/nearby?lat=${pos[0]}&lon=${pos[1]}&radius_m=${radiusM}`;
+    const res = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.shops) && data.shops.length > 0) {
+        // The server already resolved phone numbers for the head of the list.
+        return data.shops.map(s => ({ ...s, enrichTried: true }));
+      }
+    } else {
+      console.warn('[Services] server search HTTP', res.status);
+    }
+  } catch (err) {
+    console.warn('[Services] server search unavailable:', err.message);
+  }
+
+  // ── Fallbacks: query the providers straight from the phone ────────────────
+  try {
     const viaPhoton = await fetchPhotonShops(pos, radiusM);
     if (viaPhoton.length > 0) return viaPhoton;
-    console.warn('[Services] Photon returned nothing, falling back to Overpass');
   } catch (err) {
     console.warn('[Services] Photon failed, falling back to Overpass:', err.message);
   }
-  // Overpass already carries phone numbers, so no enrichment pass is needed.
+  // Overpass carries phone numbers itself, so no enrichment pass is needed.
   const viaOverpass = await fetchNearbyShops(pos, radiusM);
   return viaOverpass.map(s => ({ ...s, enrichTried: true }));
 }

@@ -20,7 +20,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from .db import close_db, init_db
 from .rate_limit import limiter
-from .routers import admin, auth, chat, perf, summary
+from .routers import admin, auth, chat, perf, places, summary
 
 
 @asynccontextmanager
@@ -120,6 +120,9 @@ app.include_router(perf.router, prefix="/api/perf")
 app.include_router(summary.router, prefix="/api/summary")
 app.include_router(chat.router, prefix="/api/chat")
 app.include_router(admin.router, prefix="/api/admin")
+# Nearby car services. Server-side so the free upstream providers see one IP
+# with one shared cache, instead of every phone querying them directly.
+app.include_router(places.router, prefix="/api/places")
 
 
 # ── Admin panel page ─────────────────────────────────────────────────────────
