@@ -23,3 +23,10 @@ server/.env
 server/.env
 server/.env
 server/.env
+
+# App Store Connect API private keys. These were listed one filename at a time,
+# which left every newly generated key unprotected until someone remembered to
+# add it — a .p8 is a private key that can publish to the App Store, so match
+# them all by pattern instead.
+*.p8
+**/*.p8
