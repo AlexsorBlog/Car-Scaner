@@ -47,7 +47,8 @@ function getNativeDB() {
           speed REAL,
           rpm REAL,
           temp REAL,
-          fuel REAL
+          fuel REAL,
+          fuelL100 REAL
         );
         CREATE INDEX IF NOT EXISTS idx_timestamp ON raw_telemetry(timestamp);
 
@@ -84,6 +85,15 @@ function getNativeDB() {
         CREATE INDEX IF NOT EXISTS idx_raw_logs_ts ON obd_raw_logs(timestamp);
       `;
       await db.execute(schema);
+
+      // CREATE TABLE IF NOT EXISTS never touches a table that already exists, so
+      // a phone that has been running an older build keeps the old column set
+      // and every INSERT naming the new column would fail. Add it idempotently.
+      try {
+        await db.execute('ALTER TABLE raw_telemetry ADD COLUMN fuelL100 REAL');
+      } catch {
+        // Already present — SQLite reports a duplicate column, which is fine.
+      }
       return db;
     } catch (err) {
       console.error('[DB] SQLite Init Error:', err);
@@ -358,8 +368,9 @@ export async function saveTelemetryData(dataPoint) {
     try {
       const db = await getNativeDB();
       await db.run(
-        `INSERT INTO raw_telemetry (timestamp, speed, rpm, temp, fuel) VALUES (?, ?, ?, ?, ?)`,
-        [ ts, dataPoint.speed ?? null, dataPoint.rpm ?? null, dataPoint.temp ?? null, dataPoint.fuel ?? null ]
+        `INSERT INTO raw_telemetry (timestamp, speed, rpm, temp, fuel, fuelL100) VALUES (?, ?, ?, ?, ?, ?)`,
+        [ ts, dataPoint.speed ?? null, dataPoint.rpm ?? null, dataPoint.temp ?? null,
+          dataPoint.fuel ?? null, dataPoint.fuelL100 ?? null ]
       );
     } catch (err) { console.error('[DB] SQLite saveTelemetryData failed:', err); }
     return;

@@ -9,7 +9,6 @@ import { api } from '../services/api.js';
 import { DragyStyleChart } from '../components/perf/DragyStyleChart.jsx';
 import PerfRunDetailModal from '../components/perf/PerfRunDetailModal.jsx';
 import { formatPerfTime, getMilestoneTime, getMilestoneDistance } from '../components/perf/perfHelpers.js';
-import { lphToL100km } from '../obd/fuelRate.js';
 import {
   yAxisFor, svgYFor, toL100kmSeries, findNeighborPoint, panOffsetCentering,
   formatPointDate, WINDOW_PRESETS, DEFAULT_WINDOW_MS, loadWindowMs, saveWindowMs,
@@ -51,7 +50,10 @@ const GRAPH_KEY_MAP = {
   SPEED:        'speed',
   RPM:          'rpm',
   COOLANT_TEMP: 'temp',
-  FUEL_RATE:    'fuel',
+  // The л/100км series the poller computes — NOT the raw л/год samples. The
+  // graph must show the same number as the tile, so it reads the same source
+  // instead of converting raw samples itself.
+  FUEL_RATE:    'fuelL100',
 };
 
 const get24hData = (dataArray) => {
@@ -353,9 +355,9 @@ export default function DashboardPage() {
       
       const dbField = GRAPH_KEY_MAP[selectedGraph.id] || selectedGraph.id.toLowerCase();
 
-      // Fuel rows are stored in л/год — convert against the speed recorded on
-      // the same rows so the archive reads in л/100км like everything else.
-      const formatted = selectedGraph.id === 'FUEL_RATE'
+      // Older rows predate the stored л/100км column, so fall back to pairing
+      // the raw л/год samples with the speed recorded on the same rows.
+      const formatted = (selectedGraph.id === 'FUEL_RATE' && !history.some(d => d.fuelL100 != null))
         ? toL100kmSeries(
             history.filter(d => d.fuel != null).map(d => ({ t: d.timestamp, v: d.fuel })),
             history.filter(d => d.speed != null).map(d => ({ t: d.timestamp, v: d.speed })),
@@ -393,14 +395,11 @@ export default function DashboardPage() {
     }
   }, [dbGraphData, isGraphLoading, selectedGraph, graphZoomMs, telemetry.history]);
 
-  // Fuel history in driver units. Stored as л/год (well-defined at idle), shown
-  // as л/100км, which needs the speed at each sample — so the two histories are
-  // paired here. Samples taken while stopped have no per-distance value and are
-  // dropped rather than drawn as a spike.
-  const fuelL100History = toL100kmSeries(
-    get24hData(telemetry.history.fuel),
-    get24hData(telemetry.history.speed),
-  );
+  // Fuel is already in л/100км in the history, computed once by the poller
+  // (TelemetryContext). Converting raw samples here as well is what made the
+  // graph and the tile disagree — the graph showed 99.9 at a standstill while
+  // the tile showed the real rolling figure.
+  const fuelL100History = get24hData(telemetry.history.fuelL100);
 
   const switchTab = (id) => {
     if (isEditMode) return; 
@@ -562,10 +561,9 @@ export default function DashboardPage() {
   const renderDetailedGraph = () => {
     if (!selectedGraph) return null;
     
-    // Fuel is the one metric whose stored unit is not its displayed unit.
-    const liveData = selectedGraph.id === 'FUEL_RATE'
-      ? toL100kmSeries(telemetry.history.fuel || [], telemetry.history.speed || [])
-      : (telemetry.history[GRAPH_KEY_MAP[selectedGraph.id] || selectedGraph.id.toLowerCase()] || []);
+    // Every metric, fuel included, is stored ready to draw.
+    const liveData = telemetry.history[GRAPH_KEY_MAP[selectedGraph.id]
+      || selectedGraph.id.toLowerCase()] || [];
     const dataMap = new Map();
     dbGraphData.forEach(d => dataMap.set(d.t, d.v));
     liveData.forEach(d => dataMap.set(d.t, d.v));
@@ -904,14 +902,36 @@ export default function DashboardPage() {
     let displayValue = metricData.value;
     let displayUnit  = metricData.unit;
     if (item.id === 'FUEL_RATE') {
-      const rolling = telemetry.fuelL100 != null ? telemetry.fuelL100.toFixed(1) : null;
-      const instant = metricData.value !== '--'
-        ? lphToL100km(metricData.value, telemetry.speed)
-        : null;
-      const l100 = rolling ?? instant;
-      if (l100 != null) lastFuelL100.current = l100;
-      displayValue = l100 ?? lastFuelL100.current ?? '--';
-      displayUnit  = 'л/100км';
+      // Two honest numbers, and never a wild one.
+      //
+      // л/100км is fuel per DISTANCE, so it only exists once the car has
+      // actually covered some. While it does, this is the same canonical value
+      // the graph plots (computed once in TelemetryContext) and it holds its
+      // last real figure at a red light rather than dividing by ~zero and
+      // printing 99.
+      //
+      // Before the car has moved there is no per-distance figure at all — so
+      // the tile falls back to what the engine IS doing right now: its hourly
+      // burn, derived from rpm and load. That is the number the car's own
+      // computer shows at idle, and on this car it is the only one available
+      // at all, since PID 015E and MAF both answer NO DATA.
+      const canonical = telemetry.fuelL100 != null ? Number(telemetry.fuelL100) : null;
+      if (canonical != null && isFinite(canonical) && canonical > 0) {
+        lastFuelL100.current = canonical;
+      }
+      const perDistance = canonical ?? lastFuelL100.current;
+      const perHour = metricData.value !== '--' ? Number(metricData.value) : null;
+
+      if (perDistance != null && isFinite(perDistance)) {
+        displayValue = Number(perDistance).toFixed(1);
+        displayUnit  = 'л/100км';
+      } else if (perHour != null && isFinite(perHour)) {
+        displayValue = perHour.toFixed(1);
+        displayUnit  = 'л/год';
+      } else {
+        displayValue = '--';
+        displayUnit  = 'л/100км';
+      }
     }
 
     return (

@@ -29,6 +29,26 @@ async function request(method, path, body = null, isFormData = false) {
   });
 
   const data = await res.json().catch(() => ({}));
+
+  // A token this server cannot verify is dead — keeping it only produces
+  // "Invalid or expired token" on every screen forever, with no way out of it
+  // from inside the app. That is exactly what happened after the server move:
+  // tokens signed by the old server stayed in storage and every call (chat,
+  // profile, services) answered 401 until the user manually logged out.
+  //
+  // Drop it and tell the app to send the user back to the login screen. The
+  // auth calls themselves are excluded: a wrong password there is a normal
+  // 401 and must not look like a session expiry.
+  const isAuthCall = path.startsWith('/api/auth/login') || path.startsWith('/api/auth/register');
+  if (res.status === 401 && !isAuthCall) {
+    localStorage.removeItem('obd_token');
+    try {
+      window.dispatchEvent(new CustomEvent('carsense:session-expired'));
+    } catch {
+      // Non-browser context (tests) — clearing the token is enough.
+    }
+  }
+
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }

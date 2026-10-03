@@ -10,7 +10,7 @@
 import {
   yAxisFor, svgYFor, toL100kmSeries, findNeighborPoint, panOffsetCentering,
   formatPointDate, WINDOW_PRESETS, DEFAULT_WINDOW_MS, loadWindowMs, saveWindowMs,
-  L100_CEILING,
+  L100_PLAUSIBLE_MAX,
 } from '../graphSeries.js';
 
 let pass = 0, fail = 0;
@@ -69,12 +69,15 @@ check('10 л/год at 100 км/год is 10 л/100км',
 check('10 л/год at 50 км/год is 20 л/100км',
   conv[1]?.v === 20, JSON.stringify(conv[1]));
 
-// The car burns fuel at a red light. Dropping that sample hid real consumption;
-// per-distance it is off the top of the scale, so that is what gets reported.
+// At a standstill there is no distance to divide by, so per-100km cannot be
+// measured. The old code reported a 99.9 ceiling, which showed up as "99 л/100км
+// on a parked car". It now holds the last figure actually achieved.
 check('a sample taken while stopped is KEPT, not dropped',
   conv.length === 3, JSON.stringify(conv));
-check('idling reads at the ceiling — burning fuel, covering no distance',
-  conv[2]?.v === L100_CEILING, JSON.stringify(conv[2]));
+check('idling holds the last real figure instead of a wild number',
+  conv[2]?.v === conv[1]?.v, JSON.stringify([conv[1], conv[2]]));
+check('nothing in the series is a wild number',
+  conv.every(c => c.v <= L100_PLAUSIBLE_MAX), JSON.stringify(conv.map(c => c.v)));
 check('every fuel sample yields a point — no gaps in the fuel graph',
   toL100kmSeries(fuel, speed).length === fuel.length);
 check('timestamps are preserved so points stay aligned with the time axis',
@@ -85,8 +88,11 @@ check('crawling in traffic is a real number, not the ceiling',
   JSON.stringify(toL100kmSeries([{ t: t0, v: 1 }], [{ t: t0, v: 4 }])));
 check('overrun fuel cut-off (0 л/год while rolling) reads 0, not the ceiling',
   toL100kmSeries([{ t: t0, v: 0 }], [{ t: t0, v: 60 }])[0].v === 0);
-check('a thirsty reading is capped at the ceiling rather than spiking the axis',
-  toL100kmSeries([{ t: t0, v: 40 }], [{ t: t0, v: 1 }])[0].v === L100_CEILING);
+// 40 л/год at 1 km/h is 4000 л/100км — the division blowing up, not a reading.
+check('an implausible reading is discarded, not drawn',
+  toL100kmSeries([{ t: t0, v: 40 }], [{ t: t0, v: 1 }]).length === 0);
+check('a parked car with no prior driving yields no per-100km points at all',
+  toL100kmSeries([{ t: t0, v: 1.1 }], [{ t: t0, v: 0 }]).length === 0);
 
 check('fuel samples with no nearby speed reading are dropped',
   toL100kmSeries([{ t: t0, v: 10 }], [{ t: t0 + 60_000, v: 90 }]).length === 0);

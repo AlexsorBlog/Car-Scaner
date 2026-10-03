@@ -14,7 +14,7 @@
     "test:fuel": "node src/obd/__tests__/fuelRate.test.mjs",
     "test:scanner": "node src/obd/__tests__/dtcScanner.test.mjs",
     "test:log": "node src/obd/__tests__/diagnosticLog.test.mjs",
-    "test": "npm run test:dtc && npm run test:vin && npm run test:reallog && npm run test:fuel && npm run test:scanner && npm run test:log && npm run test:falsepos && npm run test:e2e && npm run test:graph && npm run test:scrolllock && npm run test:overpass && npm run test:shopscache && npm run test:shops && npm run test:photon",
+    "test": "npm run test:dtc && npm run test:vin && npm run test:reallog && npm run test:fuel && npm run test:scanner && npm run test:log && npm run test:falsepos && npm run test:e2e && npm run test:graph && npm run test:scrolllock && npm run test:overpass && npm run test:shopscache && npm run test:shops && npm run test:photon && npm run test:fuelsync",
     "test:falsepos": "node src/obd/__tests__/falsePositives.test.mjs",
     "test:e2e": "node src/obd/__tests__/endToEnd.test.mjs",
     "test:graph": "node src/obd/__tests__/graphSeries.test.mjs",
@@ -22,7 +22,8 @@
     "test:overpass": "node src/services/__tests__/overpass.test.mjs",
     "test:shopscache": "node src/services/__tests__/shopsCache.test.mjs",
     "test:shops": "node src/services/__tests__/shops.test.mjs",
-    "test:photon": "node src/services/__tests__/photon.test.mjs"
+    "test:photon": "node src/services/__tests__/photon.test.mjs",
+    "test:fuelsync": "node src/obd/__tests__/fuelSync.test.mjs"
   },
   "dependencies": {
     "@capacitor-community/bluetooth-le": "^8.1.3",

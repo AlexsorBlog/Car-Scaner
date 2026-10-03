@@ -81,13 +81,12 @@ export function svgYFor(value, axis) {
 // ── Fuel: л/год history → л/100км history ───────────────────────────────────
 
 /**
- * Ceiling for л/100км. Standing still the car burns fuel and covers no
- * distance, so consumption per distance is not "nothing" — it is arbitrarily
- * large. Idling samples are reported at this ceiling (the graph clamps it to
- * the top of the axis) instead of being dropped, which would have hidden real
- * fuel being burnt at every red light.
+ * Largest л/100км worth believing. Above this the figure is noise, not a
+ * reading: a stationary car divides fuel by ~zero distance and produces an
+ * arbitrarily large number, which is how the graph ended up showing 99 л/100км
+ * on an idling car. Anything beyond this is discarded rather than drawn.
  */
-export const L100_CEILING = 99.9;
+export const L100_PLAUSIBLE_MAX = 50;
 
 // Below this the car is not meaningfully moving and the ratio runs away.
 const STANDSTILL_KMH = 0.5;
@@ -110,6 +109,7 @@ export function toL100kmSeries(fuelPoints, speedPoints, opts = {}) {
   const speeds = [...speedPoints].sort((a, b) => a.t - b.t);
   const out = [];
   let i = 0;
+  let lastGood = null;
 
   for (const f of [...fuelPoints].sort((a, b) => a.t - b.t)) {
     // Advance to the last speed sample at or before this fuel sample.
@@ -133,11 +133,16 @@ export function toL100kmSeries(fuelPoints, speedPoints, opts = {}) {
       // Overrun fuel cut-off — coasting in gear burns nothing. Genuinely 0.
       v = 0;
     } else if (speed <= STANDSTILL_KMH) {
-      // Idling: fuel burnt, no distance covered. Off the top of the scale.
-      v = L100_CEILING;
+      // Idling: fuel per DISTANCE cannot be measured, because there is no
+      // distance. Hold the last real figure, exactly as a car's own trip
+      // computer does, rather than inventing a huge one.
+      if (lastGood == null) continue;      // nothing real to hold on to yet
+      v = lastGood;
     } else {
-      v = Math.min(L100_CEILING, (lph / speed) * 100);
+      v = (lph / speed) * 100;
+      if (v > L100_PLAUSIBLE_MAX) continue;  // noise, not a reading
     }
+    lastGood = v;
     out.push({ t: f.t, v: Number(v.toFixed(1)) });
   }
   return out;

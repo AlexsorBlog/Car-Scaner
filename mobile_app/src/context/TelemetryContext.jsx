@@ -64,7 +64,7 @@ export function TelemetryProvider({ children }) {
     isCheckingErrors:  false,
     lastScanTime:      null,
     showArchiveErrors: false,   // ← new: controls archive dropdown in UI
-    history:           { speed: [], rpm: [], temp: [], fuel: [] },
+    history:           { speed: [], rpm: [], temp: [], fuel: [], fuelL100: [] },
     user:              { name: '', email: '', vehicle: '', vin: '', odometer: '', make: '', model: '', avatarBase64: null, avatarMime: null },
     profileError:      null,
   });
@@ -89,6 +89,11 @@ export function TelemetryProvider({ children }) {
   const fuelSamples    = useRef([]); // [{ t, litres, km }] deltas within window
   const fuelLastT      = useRef(null);
   const fuelLastLph    = useRef(null);
+  // Last л/100км we could legitimately compute. Held so a stationary car keeps
+  // showing its real recent consumption instead of a meaningless number: fuel
+  // per DISTANCE is undefined at a standstill, and the graph used to draw that
+  // as 99.9 while the tile showed "--" — two different answers for one metric.
+  const fuelLastL100   = useRef(null);
   const activeSensors = useRef([]);
   const lastDbSave    = useRef(0);
   const tickCount     = useRef(0);
@@ -133,7 +138,7 @@ export function TelemetryProvider({ children }) {
 
     try {
       const recentRows = await getRecentTelemetry(1500);
-      const histSpeed = [], histRpm = [], histTemp = [], histFuel = [];
+      const histSpeed = [], histRpm = [], histTemp = [], histFuel = [], histFuelL100 = [];
       let initialMetrics = {};
       let latestSpeed = 0, latestRpm = 0, latestTemp = 0, latestFuel = 0;
 
@@ -150,7 +155,7 @@ export function TelemetryProvider({ children }) {
         speed: latestSpeed, rpm: latestRpm, temp: latestTemp, fuel: latestFuel,
         metrics: initialMetrics,
         user,
-        history: { speed: histSpeed, rpm: histRpm, temp: histTemp, fuel: histFuel },
+        history: { speed: histSpeed, rpm: histRpm, temp: histTemp, fuel: histFuel, fuelL100: histFuelL100 },
         profileError,
       }));
 
@@ -256,8 +261,19 @@ export function TelemetryProvider({ children }) {
       const avgL100 = totalKm > 0.05
         ? Math.round((totalL / totalKm) * 1000) / 10
         : null;
-      if (avgL100 != null && avgL100 > 0 && avgL100 < 100) {
+      // ONE canonical л/100км, computed here in the poller and used by both the
+      // tile and the graph. Nothing downstream recomputes it from raw samples —
+      // that is what let the two disagree.
+      // 50 л/100км is already extreme for a car; beyond that the figure is the
+      // division blowing up, not the engine drinking. Never show it.
+      if (avgL100 != null && avgL100 > 0 && avgL100 < 50) {
         cycleTopLevel.fuelL100 = avgL100;
+        fuelLastL100.current = avgL100;
+      } else if (fuelLastL100.current != null) {
+        // Standing still (or crawling below the noise floor): consumption per
+        // kilometre cannot be measured right now, so hold the last real figure,
+        // exactly as a car's own trip computer does.
+        cycleTopLevel.fuelL100 = fuelLastL100.current;
       }
 
       if (now - lastDbSave.current > DB_SAVE_INTERVAL_MS && Object.keys(cycleTopLevel).length > 0) {
@@ -272,6 +288,10 @@ export function TelemetryProvider({ children }) {
           if (cycleTopLevel.rpm   != null) h.rpm   = [...h.rpm,   { t: now, v: cycleTopLevel.rpm   }].slice(-HISTORY_LIMIT);
           if (cycleTopLevel.temp  != null) h.temp  = [...h.temp,  { t: now, v: cycleTopLevel.temp  }].slice(-HISTORY_LIMIT);
           if (cycleTopLevel.fuel  != null) h.fuel  = [...h.fuel,  { t: now, v: cycleTopLevel.fuel  }].slice(-HISTORY_LIMIT);
+          // The series the fuel graph draws — same number the tile shows.
+          if (cycleTopLevel.fuelL100 != null) {
+            h.fuelL100 = [...(h.fuelL100 || []), { t: now, v: cycleTopLevel.fuelL100 }].slice(-HISTORY_LIMIT);
+          }
           return {
             ...prev,
             ...cycleTopLevel,
@@ -284,6 +304,19 @@ export function TelemetryProvider({ children }) {
       await new Promise(r => setTimeout(r, 40));
     }
   }, []);
+
+  // A dead token (e.g. one signed by a previous server) makes every
+  // authenticated call fail with "Invalid or expired token". services/api.js
+  // clears it and fires this; take the user to the login screen rather than
+  // leaving them on a screen that can only error.
+  useEffect(() => {
+    const onExpired = () => {
+      setData(prev => ({ ...prev, user: null }));
+      navigate('/login', { replace: true });
+    };
+    window.addEventListener('carsense:session-expired', onExpired);
+    return () => window.removeEventListener('carsense:session-expired', onExpired);
+  }, [navigate]);
 
   // ── Auto-grab VIN on first successful connect (only if not already set —
   // never overwrites a VIN the user typed in themselves) ──────────────────
